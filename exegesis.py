@@ -28,9 +28,10 @@ if "messages" not in st.session_state:
               "Understand common internet slang (like 'lol', 'rn', 'btw', etc.) naturally. "
               "If the user makes spelling mistakes, gently correct them like Microsoft Word.\n\n"
               "TEACHING RULES:\n"
-              "1. Give ONLY ONE hint at a time when starting a new topic. Never give the direct answer right away unless the user explicitly demands the final answer after receiving hints.\n"
-              "2. If the user says 'I don't understand' or asks for more help, explain the concept further using simple real-world examples.\n"
-              "3. If the question is truly incomplete or unclear, politely ask the user to write the whole question."
+              "1. Give ONLY ONE hint at a time when starting a new topic.\n"
+              "2. If the user asks for the direct answer before all 3 hints have been given, you MUST say: 'Not quite, here is another hint!' and provide the next hint instead of the answer.\n"
+              "3. If the user says 'I don't understand' or asks for more help, explain the concept further using simple real-world examples.\n"
+              "4. If the question is truly incomplete or unclear, politely ask the user to write the whole question."
           ),
       }
   ]
@@ -42,10 +43,8 @@ if not st.session_state["logged_in"]:
 
   col1, col2 = st.columns([1, 2])
   with col1:
-    # Step 1: Name input first
     entered_name = st.text_input("Your Name", placeholder="e.g., Alex")
 
-    # Step 2: Gender appears ONLY after the user types their name
     if entered_name.strip() != "":
       st.markdown("---")
       entered_gender = st.radio("Select Gender", ["Male", "Female", "Other"])
@@ -55,7 +54,6 @@ if not st.session_state["logged_in"]:
         st.session_state["user_name"] = entered_name
         st.session_state["user_gender"] = entered_gender
         
-        # Using a sleek, modern young adult cartoon avatar style (Micah)
         avatar_seed = f"{entered_name}_{entered_gender}"
         st.session_state["user_avatar"] = (
             f"https://api.dicebear.com/7.x/micah/svg?seed={avatar_seed}"
@@ -67,7 +65,6 @@ if not st.session_state["logged_in"]:
 
 # --- Main App (After Login) ---
 
-# Top Left Sidebar for History Button
 with st.sidebar:
   st.title("📂 History")
   if st.button("New Chat", use_container_width=True):
@@ -97,13 +94,27 @@ st.title("=== Exegesis AI ===")
 st.write(f"Hello {st.session_state['user_name']}, How can I help you today?")
 
 # Display conversation history
-for msg in st.session_state["messages"]:
+for i, msg in enumerate(st.session_state["messages"]):
   if msg["role"] != "system":
     avatar_img = (
         st.session_state["user_avatar"] if msg["role"] == "user" else "🤖"
     )
     with st.chat_message(msg["role"], avatar=avatar_img):
       st.markdown(msg["content"])
+      
+      # Add a speaker button for assistant messages using browser speech synthesis
+      if msg["role"] == "assistant":
+        safe_text = msg["content"].replace('"', '\\"').replace('\n', ' ')
+        speaker_html = f"""
+        <button onclick="
+            const text = `{safe_text}`;
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.speechSynthesis.speak(utterance);
+        " style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;" title="Listen">
+            🔊 Listen
+        </button>
+        """
+        st.markdown(speaker_html, unsafe_allow_html=True)
 
 # Gemini-style chat input bar at the bottom
 user_input = st.chat_input("Ask a question or topic to learn...")
@@ -113,7 +124,6 @@ if user_input:
     st.markdown(user_input)
   st.session_state["messages"].append({"role": "user", "content": user_input})
 
-  # Safety filter for violence, harm, or self-harm
   harmful_keywords = [
       "kill",
       "suicide",
@@ -132,6 +142,16 @@ if user_input:
     )
     with st.chat_message("assistant", avatar="🤖"):
       st.markdown(safety_reply)
+      safe_text = safety_reply.replace('"', '\\"').replace('\n', ' ')
+      st.markdown(f"""
+      <button onclick="
+          const utterance = new SpeechSynthesisUtterance(`{safe_text}`);
+          window.speechSynthesis.speak(utterance);
+      " style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
+          🔊 Listen
+      </button>
+      """, unsafe_allow_html=True)
+      
     st.session_state["messages"].append(
         {"role": "assistant", "content": safety_reply}
     )
@@ -156,6 +176,16 @@ if user_input:
           ai_reply = response_data["choices"][0]["message"]["content"]
 
           st.markdown(ai_reply)
+          safe_text = ai_reply.replace('"', '\\"').replace('\n', ' ')
+          st.markdown(f"""
+          <button onclick="
+              const utterance = new SpeechSynthesisUtterance(`{safe_text}`);
+              window.speechSynthesis.speak(utterance);
+          " style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
+              🔊 Listen
+          </button>
+          """, unsafe_allow_html=True)
+
           st.session_state["messages"].append(
               {"role": "assistant", "content": ai_reply}
           )
