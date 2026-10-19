@@ -5,7 +5,6 @@ from streamlit_google_auth import Authenticate
 
 FULL_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 
-# Load Google credentials directly from your Streamlit secrets
 google_creds = {
     "web": {
         "client_id": st.secrets["google_auth"]["client_id"],
@@ -26,8 +25,6 @@ authenticator = Authenticate(
     cookie_key="super_secret_random_key",
     redirect_uri="https://exegesis-ai.streamlit.app",
 )
-
-authenticator.check_authorization()
 
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
