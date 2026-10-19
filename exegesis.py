@@ -155,7 +155,7 @@ if user_question:
               st.rerun()
 
     with col2:
-      if st.button("Need another hint?", use_color_width=True):
+      if st.button("Need another hint?", use_container_width=True):
         st.session_state["attempt"] += 1
         st.rerun()
 
