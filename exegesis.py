@@ -28,10 +28,9 @@ if "messages" not in st.session_state:
               "Understand common internet slang (like 'lol', 'rn', 'btw', etc.) naturally. "
               "If the user makes spelling mistakes, gently correct them like Microsoft Word.\n\n"
               "TEACHING RULES:\n"
-              "1. Give ONLY ONE hint at a time when starting a new topic.\n"
-              "2. If the user asks for a direct answer, or after they have received hints, give them the full explanation and answer clearly.\n"
-              "3. If the user says 'I don't understand' or asks for more help, explain the concept further using simple real-world examples.\n"
-              "4. If the question is truly incomplete or unclear, politely ask the user to write the whole question."
+              "1. Give ONLY ONE hint at a time when starting a new topic. Never give the direct answer right away unless the user explicitly demands the final answer after receiving hints.\n"
+              "2. If the user says 'I don't understand' or asks for more help, explain the concept further using simple real-world examples.\n"
+              "3. If the question is truly incomplete or unclear, politely ask the user to write the whole question."
           ),
       }
   ]
@@ -56,10 +55,10 @@ if not st.session_state["logged_in"]:
         st.session_state["user_name"] = entered_name
         st.session_state["user_gender"] = entered_gender
         
-        # Clean-shaven animated avatar seed with facial hair turned off
+        # Using a sleek, modern young adult cartoon avatar style (Micah)
         avatar_seed = f"{entered_name}_{entered_gender}"
         st.session_state["user_avatar"] = (
-            f"https://api.dicebear.com/7.x/avataaars/svg?seed={avatar_seed}&facialHairProbability=0"
+            f"https://api.dicebear.com/7.x/micah/svg?seed={avatar_seed}"
         )
         st.rerun()
     else:
