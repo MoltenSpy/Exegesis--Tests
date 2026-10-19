@@ -10,21 +10,42 @@ FULL_API_KEY = base64.b64decode(encoded_key).decode("utf-8").strip()
 st.title("=== Exegesis AI ===")
 st.write("Your personal scaffolded learning tutor!")
 
-# Text input for questions
-user_question = st.text_input(
-    "What question or topic do you want help learning?",
-    placeholder="e.g., 3 multiplied by 6, Photosynthesis, Gravity",
-)
-
-# Voice recording feature
+# Voice recording button
 st.write("Or click below to speak your question:")
 audio = mic_recorder(
     start_prompt="Click to speak", stop_prompt="Stop recording", key="voice_input"
 )
 
+transcribed_question = ""
 if audio:
   st.audio(audio["bytes"])
-  st.success("Voice recorded successfully!")
+  with st.spinner("Turning your voice into text..."):
+    try:
+      b64_audio = base64.b64encode(audio["bytes"]).decode("utf-8")
+      trans_resp = requests.post(
+          url="https://openrouter.ai/api/v1/audio/transcriptions",
+          headers={
+              "Authorization": f"Bearer {FULL_API_KEY}",
+              "Content-Type": "application/json",
+          },
+          data=json.dumps({
+              "model": "openai/whisper-1",
+              "input_audio": {"data": b64_audio, "format": "wav"},
+          }),
+      )
+      trans_data = trans_resp.json()
+      transcribed_question = trans_data.get("text", "").strip()
+    except Exception as e:
+      st.error(
+          "Could not convert speech to text. Please type your question instead!"
+      )
+
+# Text input box (automatically fills if you use the microphone)
+user_question = st.text_input(
+    "What question or topic do you want help learning?",
+    value=transcribed_question,
+    placeholder="e.g., 3 multiplied by 6, Photosynthesis, Gravity",
+)
 
 if user_question:
   if (
