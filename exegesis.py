@@ -27,11 +27,12 @@ if "messages" not in st.session_state:
               "You are Exegesis AI, a scaffolded learning tutor acting like a friendly teacher. "
               "Understand common internet slang (like 'lol', 'rn', 'btw', etc.) naturally. "
               "If the user makes spelling mistakes, gently correct them like Microsoft Word.\n\n"
-              "TEACHING RULES:\n"
+              "TEACHING RULES (EXEGESIS METHOD):\n"
               "1. Give ONLY ONE hint at a time when starting a new topic.\n"
-              "2. If the user asks for the direct answer before all 3 hints have been given, you MUST say: 'Not quite, here is another hint!' and provide the next hint instead of the answer.\n"
-              "3. If the user says 'I don't understand' or asks for more help, explain the concept further using simple real-world examples.\n"
-              "4. If the question is truly incomplete or unclear, politely ask the user to write the whole question."
+              "2. If the user asks for the direct answer before all 3 hints have been given, you MUST reply: 'Not quite, here is another hint!' and give the next hint.\n"
+              "3. Only AFTER all 3 hints have been given are you allowed to provide the final explanation and the direct answer.\n"
+              "4. If the user says 'I don't understand' or asks for more help, explain the concept further using simple real-world examples.\n"
+              "5. If the question is truly incomplete or unclear, politely ask the user to write the whole question."
           ),
       }
   ]
@@ -94,26 +95,13 @@ st.title("=== Exegesis AI ===")
 st.write(f"Hello {st.session_state['user_name']}, How can I help you today?")
 
 # Display conversation history
-for i, msg in enumerate(st.session_state["messages"]):
+for msg in st.session_state["messages"]:
   if msg["role"] != "system":
     avatar_img = (
         st.session_state["user_avatar"] if msg["role"] == "user" else "🤖"
     )
     with st.chat_message(msg["role"], avatar=avatar_img):
       st.markdown(msg["content"])
-      
-      # Fixed speaker button using json.dumps for safe JavaScript text passing
-      if msg["role"] == "assistant":
-        json_text = json.dumps(msg["content"])
-        speaker_html = f"""
-        <button onclick='
-            const utterance = new SpeechSynthesisUtterance({json_text});
-            window.speechSynthesis.speak(utterance);
-        ' style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;" title="Listen">
-            🔊 Listen
-        </button>
-        """
-        st.markdown(speaker_html, unsafe_allow_html=True)
 
 # Gemini-style chat input bar at the bottom
 user_input = st.chat_input("Ask a question or topic to learn...")
@@ -141,16 +129,6 @@ if user_input:
     )
     with st.chat_message("assistant", avatar="🤖"):
       st.markdown(safety_reply)
-      json_safety = json.dumps(safety_reply)
-      st.markdown(f"""
-      <button onclick='
-          const utterance = new SpeechSynthesisUtterance({json_safety});
-          window.speechSynthesis.speak(utterance);
-      ' style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
-          🔊 Listen
-      </button>
-      """, unsafe_allow_html=True)
-      
     st.session_state["messages"].append(
         {"role": "assistant", "content": safety_reply}
     )
@@ -174,17 +152,13 @@ if user_input:
           response_data = response.json()
           ai_reply = response_data["choices"][0]["message"]["content"]
 
-          st.markdown(ai_reply)
-          json_reply = json.dumps(ai_reply)
-          st.markdown(f"""
-          <button onclick='
-              const utterance = new SpeechSynthesisUtterance({json_reply});
-              window.speechSynthesis.speak(utterance);
-          ' style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
-              🔊 Listen
-          </button>
-          """, unsafe_allow_html=True)
+          ai_reply = (
+              ai_reply.replace("User Safety: safe", "")
+              .replace("Response Safety: safe", "")
+              .strip()
+          )
 
+          st.markdown(ai_reply)
           st.session_state["messages"].append(
               {"role": "assistant", "content": ai_reply}
           )
