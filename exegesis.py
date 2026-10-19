@@ -10,49 +10,65 @@ FULL_API_KEY = base64.b64decode(encoded_key).decode("utf-8").strip()
 st.title("=== Exegesis AI ===")
 st.write("Your personal scaffolded learning tutor!")
 
-# Voice recording button
-st.write("Or click below to speak your question:")
-audio = mic_recorder(
-    start_prompt="Click to speak", stop_prompt="Stop recording", key="voice_input"
-)
+# Initialize session state for transcribed text if not present
+if "transcribed_text" not in st.session_state:
+  st.session_state["transcribed_text"] = ""
 
-transcribed_question = ""
-if audio:
-  st.audio(audio["bytes"])
-  with st.spinner("Turning your voice into text..."):
-    try:
-      b64_audio = base64.b64encode(audio["bytes"]).decode("utf-8")
-      trans_resp = requests.post(
-          url="https://openrouter.ai/api/v1/audio/transcriptions",
-          headers={
-              "Authorization": f"Bearer {FULL_API_KEY}",
-              "Content-Type": "application/json",
-          },
-          data=json.dumps({
-              "model": "openai/whisper-1",
-              "input_audio": {"data": b64_audio, "format": "wav"},
-          }),
-      )
-      trans_data = trans_resp.json()
-      transcribed_question = trans_data.get("text", "").strip()
-    except Exception as e:
-      st.error(
-          "Could not convert speech to text. Please type your question instead!"
-      )
-
-# Text input box (automatically fills if you use the microphone)
+# 1. Text input box comes first
 user_question = st.text_input(
     "What question or topic do you want help learning?",
-    value=transcribed_question,
+    value=st.session_state["transcribed_text"],
     placeholder="e.g., 3 multiplied by 6, Photosynthesis, Gravity",
 )
 
-if user_question:
+# 2. Voice recording button placed right below the text box
+st.write("Or click below to speak your question:")
+audio_info = mic_recorder(
+    start_prompt="Click to speak",
+    stop_prompt="Stop recording",
+    key="voice_input",
+)
+
+# Check if audio was recorded via session state output
+audio_output_key = "voice_input_output"
+if audio_output_key in st.session_state and st.session_state[audio_output_key]:
+  audio_data = st.session_state[audio_output_key]
+  if audio_data and "bytes" in audio_data:
+    st.audio(audio_data["bytes"])
+    with st.spinner("Turning your voice into text..."):
+      try:
+        b64_audio = base64.b64encode(audio_data["bytes"]).decode("utf-8")
+        trans_resp = requests.post(
+            url="https://openrouter.ai/api/v1/audio/transcriptions",
+            headers={
+                "Authorization": f"Bearer {FULL_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            data=json.dumps({
+                "model": "openai/whisper-1",
+                "input_audio": {"data": b64_audio, "format": "wav"},
+            }),
+        )
+        trans_data = trans_resp.json()
+        spoken_text = trans_data.get("text", "").strip()
+        if spoken_text:
+          st.session_state["transcribed_text"] = spoken_text
+          st.rerun()
+      except Exception as e:
+        st.error(
+            "Could not convert speech to text. Please type your question"
+            " instead!"
+        )
+
+# Use the text input for the main logic flow
+current_question = user_question
+
+if current_question:
   if (
       "zonal_round_question" not in st.session_state
-      or st.session_state["zonal_round_question"] != user_question
+      or st.session_state["zonal_round_question"] != current_question
   ):
-    st.session_state["zonal_round_question"] = user_question
+    st.session_state["zonal_round_question"] = current_question
     st.session_state["attempt"] = 1
     st.session_state["hints"] = {}
     st.session_state["explanation"] = ""
@@ -80,7 +96,7 @@ if user_question:
                     {"role": "system", "content": instructions},
                     {
                         "role": "user",
-                        "content": f"Help me learn about: {user_question}",
+                        "content": f"Help me learn about: {current_question}",
                     },
                 ],
             }),
@@ -113,20 +129,20 @@ if user_question:
         st.session_state["hints"] = {
             1: (
                 "Think about the foundational inputs, core rules, or active"
-                f" behaviors of '{user_question}'."
+                f" behaviors of '{current_question}'."
             ),
             2: (
-                f"Focus on how '{user_question}' functions step-by-step or how"
-                " its parts link together."
+                f"Focus on how '{current_question}' functions step-by-step or"
+                " how its parts link together."
             ),
             3: (
                 "You are looking for the absolute fundamental definition or"
-                f" final resolution of '{user_question}'."
+                f" final resolution of '{current_question}'."
             ),
         }
         st.session_state["explanation"] = (
-            f"Great exploration! '{user_question}' is a core topic. Scaffolded"
-            " learning allows you to conquer complex materials"
+            f"Great exploration! '{current_question}' is a core topic."
+            " Scaffolded learning allows you to conquer complex materials"
             " piece-by-piece!"
         )
 
@@ -151,7 +167,7 @@ if user_question:
           with st.spinner("Analyzing guess logic..."):
             try:
               check_prompt = (
-                  f"Question/Topic: {user_question}\nUser Guess:"
+                  f"Question/Topic: {current_question}\nUser Guess:"
                   f" {user_guess}\nIs this correct? Answer only YES or NO."
               )
               check_resp = requests.post(
@@ -200,4 +216,5 @@ if user_question:
     if st.button("Ask Another Question", use_container_width=True):
       for key in list(st.session_state.keys()):
         del st.session_state[key]
+      st.session_state["transcribed_text"] = ""
       st.rerun()
