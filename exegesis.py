@@ -102,15 +102,14 @@ for i, msg in enumerate(st.session_state["messages"]):
     with st.chat_message(msg["role"], avatar=avatar_img):
       st.markdown(msg["content"])
       
-      # Add a speaker button for assistant messages using browser speech synthesis
+      # Fixed speaker button using json.dumps for safe JavaScript text passing
       if msg["role"] == "assistant":
-        safe_text = msg["content"].replace('"', '\\"').replace('\n', ' ')
+        json_text = json.dumps(msg["content"])
         speaker_html = f"""
-        <button onclick="
-            const text = `{safe_text}`;
-            const utterance = new SpeechSynthesisUtterance(text);
+        <button onclick='
+            const utterance = new SpeechSynthesisUtterance({json_text});
             window.speechSynthesis.speak(utterance);
-        " style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;" title="Listen">
+        ' style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;" title="Listen">
             🔊 Listen
         </button>
         """
@@ -142,12 +141,12 @@ if user_input:
     )
     with st.chat_message("assistant", avatar="🤖"):
       st.markdown(safety_reply)
-      safe_text = safety_reply.replace('"', '\\"').replace('\n', ' ')
+      json_safety = json.dumps(safety_reply)
       st.markdown(f"""
-      <button onclick="
-          const utterance = new SpeechSynthesisUtterance(`{safe_text}`);
+      <button onclick='
+          const utterance = new SpeechSynthesisUtterance({json_safety});
           window.speechSynthesis.speak(utterance);
-      " style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
+      ' style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
           🔊 Listen
       </button>
       """, unsafe_allow_html=True)
@@ -176,12 +175,12 @@ if user_input:
           ai_reply = response_data["choices"][0]["message"]["content"]
 
           st.markdown(ai_reply)
-          safe_text = ai_reply.replace('"', '\\"').replace('\n', ' ')
+          json_reply = json.dumps(ai_reply)
           st.markdown(f"""
-          <button onclick="
-              const utterance = new SpeechSynthesisUtterance(`{safe_text}`);
+          <button onclick='
+              const utterance = new SpeechSynthesisUtterance({json_reply});
               window.speechSynthesis.speak(utterance);
-          " style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
+          ' style="background: none; border: none; cursor: pointer; font-size: 16px; margin-top: 5px;">
               🔊 Listen
           </button>
           """, unsafe_allow_html=True)
