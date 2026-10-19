@@ -160,9 +160,13 @@ if user_question:
         st.rerun()
 
   else:
+    final_explanation = st.session_state.get("explanation")
+    if not final_explanation:
+      final_explanation = f"Great exploration! '{user_question}' is a key topic. Let's review it together!"
+
     st.warning(
         "📚 Here is the full explanation from Exegesis"
-        f" AI:\n\n{st.session_state.get('explanation')}"
+        f" AI:\n\n{final_explanation}"
     )
     if st.button("Ask Another Question", use_container_width=True):
       for key in list(st.session_state.keys()):
