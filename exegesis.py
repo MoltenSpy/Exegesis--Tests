@@ -13,6 +13,8 @@ if "logged_in" not in st.session_state:
   st.session_state["logged_in"] = False
 if "user_name" not in st.session_state:
   st.session_state["user_name"] = ""
+if "user_gender" not in st.session_state:
+  st.session_state["user_gender"] = ""
 if "user_avatar" not in st.session_state:
   st.session_state["user_avatar"] = ""
 if "chat_history" not in st.session_state:
@@ -22,44 +24,45 @@ if "messages" not in st.session_state:
       {
           "role": "system",
           "content": (
-              "You are Exegesis AI, a scaffolded learning tutor. "
-              "Understand common internet slang (like 'lol', 'rn', 'btw', etc.) "
-              "naturally without treating them as typos. "
+              "You are Exegesis AI, a scaffolded learning tutor acting like a friendly teacher. "
+              "Understand common internet slang (like 'lol', 'rn', 'btw', etc.) naturally. "
               "If the user makes spelling mistakes, gently correct them like Microsoft Word.\n\n"
-              "When teaching a topic, return your response in EXACTLY this format, "
-              "separated by double newlines:\n"
-              "HINT1: <a subtle first hint, NO direct answer>\n"
-              "HINT2: <a more direct second hint, STILL NO direct answer>\n"
-              "HINT3: <a clear guiding hint, STILL NO direct answer>\n"
-              "EXPLANATION: <the full clear answer and explanation>\n\n"
-              "CRITICAL RULES:\n"
-              "1. NEVER reveal the direct answer in HINT1, HINT2, or HINT3. "
-              "The answer belongs ONLY in EXPLANATION.\n"
-              "2. If the question is truly incomplete or unclear (like 'what is'), "
-              "politely ask the user to write the whole question."
+              "TEACHING RULES:\n"
+              "1. Give ONLY ONE hint at a time. Never dump all hints and the explanation at once.\n"
+              "2. NEVER reveal the direct answer in the hints. The answer belongs ONLY in the final explanation after the student guesses or asks for it.\n"
+              "3. If the user says 'I don't understand' or asks for more help, explain the concept further using simple real-world examples like a teacher.\n"
+              "4. If the question is truly incomplete or unclear (like 'what is'), politely ask the user to write the whole question."
           ),
       }
   ]
 
-# Google Sign-In Screen if not logged in
+# Step-by-Step Login Screen
 if not st.session_state["logged_in"]:
   st.title("=== Welcome to Exegesis AI ===")
-  st.write("Please sign in with your Google account to start learning.")
+  st.write("Please enter your name to start.")
 
   col1, col2 = st.columns([1, 2])
   with col1:
+    # Step 1: Name input first
     entered_name = st.text_input("Your Name", placeholder="e.g., Alex")
-    if st.button("🔵 Sign in with Google", use_container_width=True):
-      if entered_name.strip() != "":
+
+    # Step 2: Gender appears ONLY after the user types their name
+    if entered_name.strip() != "":
+      st.markdown("---")
+      entered_gender = st.radio("Select Gender", ["Male", "Female", "Other"])
+      
+      if st.button("Start Learning", use_container_width=True):
         st.session_state["logged_in"] = True
         st.session_state["user_name"] = entered_name
-        # Using a standard Google-style placeholder profile picture avatar
+        st.session_state["user_gender"] = entered_gender
+        
+        avatar_seed = f"{entered_name}_{entered_gender}"
         st.session_state["user_avatar"] = (
-            "https://api.dicebear.com/7.x/avataaars/svg?seed=" + entered_name
+            f"https://api.dicebear.com/7.x/avataaars/svg?seed={avatar_seed}"
         )
         st.rerun()
-      else:
-        st.warning("Please enter your name to continue.")
+    else:
+      st.info("Type your name above to continue.")
   st.stop()
 
 # --- Main App (After Login) ---
@@ -76,7 +79,7 @@ with st.sidebar:
     st.rerun()
 
   st.markdown("---")
-  st.write(f"**Logged in as:** {st.session_state['user_name']}")
+  st.write(f"**Logged in as:** {st.session_state['user_name']} ({st.session_state['user_gender']})")
 
   if st.session_state["chat_history"]:
     st.write("Past Sessions:")
@@ -91,9 +94,9 @@ with st.sidebar:
         st.rerun()
 
 st.title("=== Exegesis AI ===")
-st.write(f"Welcome back, {st.session_state['user_name']}!")
+st.write(f"Hello {st.session_state['user_name']}, How can I help you today?")
 
-# Display conversation history using Google profile avatar for user
+# Display conversation history
 for msg in st.session_state["messages"]:
   if msg["role"] != "system":
     avatar_img = (
