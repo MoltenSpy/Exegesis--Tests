@@ -1,22 +1,25 @@
-import base64
 import json
 import requests
 import streamlit as st
+from streamlit_google_auth import Authenticate
 
-encoded_key = "c2stb3ItdjEtNTkwZTM1MWQyMDQxMjcxZWExZjUzOTljODc4OTRlNjMyZThiMmZhNmI1NTVkNzdlMzY2NmY4ZDc1ZDgwZDhkZg=="
-FULL_API_KEY = base64.b64decode(encoded_key).decode("utf-8").strip()
+# Fetch your API key and Google credentials safely from Streamlit Secrets
+FULL_API_KEY = st.secrets["OPENROUTER_API_KEY"]
+google_creds = dict(st.secrets["google_auth"])
 
 st.set_page_config(page_title="Exegesis AI", layout="wide")
 
-# Initialize session state for login and history
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "user_name" not in st.session_state:
-    st.session_state["user_name"] = ""
-if "user_gender" not in st.session_state:
-    st.session_state["user_gender"] = ""
-if "user_avatar" not in st.session_state:
-    st.session_state["user_avatar"] = ""
+# Set up the Google Authenticator using your secrets
+authenticator = Authenticate(
+    secret_credentials=google_creds,
+    cookie_name="exegesis_cookie",
+    cookie_key="super_secret_random_key",
+    redirect_uri="http://localhost:8501",
+)
+
+authenticator.check_authorization()
+
+# Initialize session state for messages and history
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 if "messages" not in st.session_state:
@@ -37,34 +40,17 @@ if "messages" not in st.session_state:
         }
     ]
 
-# Step-by-Step Login Screen
-if not st.session_state["logged_in"]:
+# Login Screen using Google Auth
+if not st.session_state.get("connected", False):
     st.title("=== Welcome to Exegesis AI ===")
-    st.write("Please enter your name to start.")
-
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        entered_name = st.text_input("Your Name", placeholder="e.g., Alex")
-
-        if entered_name.strip() != "":
-            st.markdown("---")
-            entered_gender = st.radio("Select Gender", ["Male", "Female", "Other"])
-            
-            if st.button("Start Learning", use_container_width=True):
-                st.session_state["logged_in"] = True
-                st.session_state["user_name"] = entered_name
-                st.session_state["user_gender"] = entered_gender
-                
-                avatar_seed = f"{entered_name}_{entered_gender}"
-                st.session_state["user_avatar"] = (
-                    f"https://api.dicebear.com/7.x/micah/svg?seed={avatar_seed}"
-                )
-                st.rerun()
-        else:
-            st.info("Type your name above to continue.")
+    st.write("Please log in with Google to start learning.")
+    authenticator.login()
     st.stop()
 
-# --- Main App (After Login) ---
+# --- Main App (After Google Login) ---
+
+user_info = st.session_state.get("user_info", {})
+user_name = user_info.get("name", "Friend")
 
 with st.sidebar:
     st.title("📂 History")
@@ -77,7 +63,10 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.write(f"**Logged in as:** {st.session_state['user_name']} ({st.session_state['user_gender']})")
+    st.write(f"**Logged in as:** {user_name}")
+
+    if st.button("Log out"):
+        authenticator.logout()
 
     if st.session_state["chat_history"]:
         st.write("Past Sessions:")
@@ -92,22 +81,20 @@ with st.sidebar:
                 st.rerun()
 
 st.title("=== Exegesis AI ===")
-st.write(f"Hello {st.session_state['user_name']}, How can I help you today?")
+st.write(f"Hello {user_name}, How can I help you today?")
 
 # Display conversation history
 for msg in st.session_state["messages"]:
     if msg["role"] != "system":
-        avatar_img = (
-            st.session_state["user_avatar"] if msg["role"] == "user" else "🤖"
-        )
+        avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
         with st.chat_message(msg["role"], avatar=avatar_img):
             st.markdown(msg["content"])
 
-# Gemini-style chat input bar at the bottom
+# Chat input bar at the bottom
 user_input = st.chat_input("Ask a question or topic to learn...")
 
 if user_input:
-    with st.chat_message("user", avatar=st.session_state["user_avatar"]):
+    with st.chat_message("user", avatar="👤"):
         st.markdown(user_input)
     st.session_state["messages"].append({"role": "user", "content": user_input})
 
