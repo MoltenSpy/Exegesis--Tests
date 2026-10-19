@@ -3,23 +3,32 @@ import requests
 import streamlit as st
 from streamlit_google_auth import Authenticate
 
-# Fetch your API key and Google credentials safely from Streamlit Secrets
 FULL_API_KEY = st.secrets["OPENROUTER_API_KEY"]
-google_creds = dict(st.secrets["google_auth"])
+
+# Load Google credentials directly from your Streamlit secrets
+google_creds = {
+    "web": {
+        "client_id": st.secrets["google_auth"]["client_id"],
+        "client_secret": st.secrets["google_auth"]["client_secret"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+}
+
+with open("google-login.json", "w") as f:
+    json.dump(google_creds, f)
 
 st.set_page_config(page_title="Exegesis AI", layout="wide")
 
-# Set up the Google Authenticator using your secrets
 authenticator = Authenticate(
-    secret_credentials=google_creds,
+    secret_credentials_path="google-login.json",
     cookie_name="exegesis_cookie",
     cookie_key="super_secret_random_key",
-    redirect_uri="http://localhost:8501",
+    redirect_uri="https://exegesis-ai.streamlit.app",
 )
 
 authenticator.check_authorization()
 
-# Initialize session state for messages and history
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 if "messages" not in st.session_state:
@@ -40,14 +49,11 @@ if "messages" not in st.session_state:
         }
     ]
 
-# Login Screen using Google Auth
 if not st.session_state.get("connected", False):
     st.title("=== Welcome to Exegesis AI ===")
     st.write("Please log in with Google to start learning.")
     authenticator.login()
     st.stop()
-
-# --- Main App (After Google Login) ---
 
 user_info = st.session_state.get("user_info", {})
 user_name = user_info.get("name", "Friend")
@@ -83,14 +89,12 @@ with st.sidebar:
 st.title("=== Exegesis AI ===")
 st.write(f"Hello {user_name}, How can I help you today?")
 
-# Display conversation history
 for msg in st.session_state["messages"]:
     if msg["role"] != "system":
         avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
         with st.chat_message(msg["role"], avatar=avatar_img):
             st.markdown(msg["content"])
 
-# Chat input bar at the bottom
 user_input = st.chat_input("Ask a question or topic to learn...")
 
 if user_input:
@@ -152,7 +156,7 @@ if user_input:
 
                 except Exception as e:
                     fallback_msg = (
-                        "⚠️ SparkX Connection Alert!\n\n"
+                        "⚠️ Connection Alert!\n\n"
                         "Please write out the whole question clearly so we can continue learning!"
                     )
                     st.markdown(fallback_msg)
