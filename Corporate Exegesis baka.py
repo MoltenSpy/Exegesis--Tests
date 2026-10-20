@@ -76,7 +76,7 @@ if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
     st.write("Please configure your institutional login credentials.")
     
-    col1, col2 = st.columns()
+    col1, col2 = st.columns([1,2])
     with col1:
         entered_email = st.text_input("School or Personal Email Address", placeholder="name@domain.com")
         
