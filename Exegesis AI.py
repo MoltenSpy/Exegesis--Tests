@@ -58,8 +58,9 @@ TUTOR_PROMPT = (
     "1. Never give the final answer right away.\n"
     "2. Provide exactly up to 3 progressive hints over the conversation.\n"
     "3. Do NOT include meta-labels or describe the hint level.\n"
+    "4. If the user asks you to guess something fun or harmless like their age, height, or weight, make a playful, lighthearted guess!"
 )
-FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend to a student who feels sad."
+FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend to a student. If they ask you to guess something fun like their age or height, make a playful guess!"
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
 
 # --- Initialize App Session States ---
@@ -271,6 +272,10 @@ if user_input:
                 timeout=20
             )
             ai_reply = response.json()["choices"][0]["message"]["content"].strip()
+            # Clean up potential safety debug tags from free models
+            ai_reply = ai_reply.replace("User Safety: safe", "").replace("Response Safety: safe", "").strip()
+            if not ai_reply:
+                ai_reply = "I'm here! What would you like to talk about or work on?"
         except Exception:
             ai_reply = "⚠️ Sync error. Please resubmit your response."
             
