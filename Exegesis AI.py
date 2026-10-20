@@ -229,7 +229,8 @@ def check_sadness(text):
 # =====================================================================
 # INTERFACE PANELS
 # =====================================================================
-st.title("🎓 Exegesis Learning Space")
+st.title("🎓 Exegesis AI")
+st.subheader("Your guide for learning and a comforting pal when you need it.")
 
 for msg in st.session_state["messages"]:
     if msg["role"] == "assistant":
