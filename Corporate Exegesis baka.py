@@ -61,6 +61,31 @@ if "hint_step" not in st.session_state: st.session_state["hint_step"] = 0
 if "attempts" not in st.session_state: st.session_state["attempts"] = 0
 if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
 
+# --- Custom CSS for Professional Fly-In Animation ---
+def render_animated_greeting(text):
+    animated_html = f"""
+    <style>
+    @keyframes flyIn {{
+        0% {{
+            opacity: 0;
+            transform: translateY(-15px);
+        }}
+        100% {{
+            opacity: 1;
+            transform: translateY(0);
+        }}
+    }}
+    .professional-greeting {{
+        animation: flyIn 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        font-size: 1.1rem;
+        color: #4A5568;
+        margin-bottom: 1rem;
+    }}
+    </style>
+    <div class="professional-greeting">{text}</div>
+    """
+    st.markdown(animated_html, unsafe_allow_html=True)
+
 # --- Onboarding Login & Signup Screen ---
 if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
@@ -139,7 +164,6 @@ with st.sidebar:
             new_password = st.text_input("New Password", type="password", placeholder="Enter new password")
             if st.button("Update Account Details"):
                 if new_user_name.strip() != "" and new_password.strip() != "":
-                    # Update DB key if username changed
                     if new_user_name != user_name:
                         st.session_state["users_db"][new_user_name] = st.session_state["users_db"].pop(user_name)
                         st.session_state["user_name"] = new_user_name
@@ -236,9 +260,9 @@ else:
     st.title("🎓 Exegesis Learning Space")
     
     if st.session_state["is_sad_mode"]: 
-        st.write(f"Hey {user_name}, I am here for you as a peer. What's on your mind?")
+        render_animated_greeting(f"Hey {user_name}, I am here for you as a peer. What's on your mind?")
     else: 
-        st.write(f"Hello {user_name}, what math or school question are we working on?")
+        render_animated_greeting("What is on your mind today?")
 
     # Render chat messages
     for msg in st.session_state["messages"]:
