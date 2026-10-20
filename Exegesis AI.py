@@ -45,6 +45,7 @@ def save_user_session():
             "chat_history": st.session_state.get("chat_history", []),
             "friends": st.session_state.get("friends", []),
             "account_type": st.session_state.get("account_type", ""),
+            "parent_mode": st.session_state.get("parent_mode", ""),
             "gender": st.session_state.get("user_gender", ""),
             "profile_pic": st.session_state.get("profile_pic", ""),
             "user_city": st.session_state.get("user_city", "London"),
@@ -93,6 +94,7 @@ if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 if "user_name" not in st.session_state: st.session_state["user_name"] = ""
 if "full_name" not in st.session_state: st.session_state["full_name"] = ""
 if "account_type" not in st.session_state: st.session_state["account_type"] = "Student Portal"
+if "parent_mode" not in st.session_state: st.session_state["parent_mode"] = ""
 if "messages" not in st.session_state: st.session_state["messages"] = []
 if "chat_history" not in st.session_state: st.session_state["chat_history"] = []
 if "friends" not in st.session_state: st.session_state["friends"] = []
@@ -100,6 +102,7 @@ if "active_group_id" not in st.session_state: st.session_state["active_group_id"
 if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
 if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
 if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
+if "parent_verified" not in st.session_state: st.session_state["parent_verified"] = False
 
 # --- Onboarding Login & Signup ---
 if not st.session_state["logged_in"]:
@@ -113,8 +116,12 @@ if not st.session_state["logged_in"]:
         
         if auth_mode == "Create Account":
             entered_fullname = st.text_input("Full Name", placeholder="Enter your exact Full Name")
-            acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "Principal Control Panel", "Personal Account"])
+            acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "Principal Control Panel", "Parent Portal", "Personal Account"])
             
+            parent_sub = ""
+            if acc_choice == "Parent Portal":
+                parent_sub = st.radio("Parent Account Type", ["School Account Parent", "Personal Account Parent"])
+
             if st.button("Register Account", use_container_width=True):
                 clean_name = entered_name.strip()
                 clean_fullname = entered_fullname.strip()
@@ -132,6 +139,7 @@ if not st.session_state["logged_in"]:
                             "chat_history": [],
                             "friends": [],
                             "account_type": acc_choice,
+                            "parent_mode": parent_sub,
                             "user_city": "London",
                             "profile_pic": ""
                         })
@@ -147,6 +155,7 @@ if not st.session_state["logged_in"]:
                         st.session_state["user_name"] = clean_name
                         st.session_state["full_name"] = user_data.get("full_name", clean_name)
                         st.session_state["account_type"] = user_data.get("account_type", "Student Portal")
+                        st.session_state["parent_mode"] = user_data.get("parent_mode", "")
                         st.session_state["messages"] = user_data.get("messages", [])
                         st.session_state["chat_history"] = user_data.get("chat_history", [])
                         st.session_state["friends"] = user_data.get("friends", [])
@@ -163,6 +172,19 @@ if not st.session_state["logged_in"]:
 user_name = st.session_state["user_name"]
 user_role = st.session_state["account_type"]
 
+# --- Student Account Parent Verification Check ---
+if user_role == "Student Portal" and not st.session_state["parent_verified"]:
+    st.title(f"Hello {st.session_state['full_name']}!")
+    st.subheader("🛡️ Parent Verification Check")
+    verification = st.radio("Is the person who wrote your username your parent or not?", ["Select...", "Yes", "No"])
+    if verification != "Select...":
+        if verification == "Yes":
+            st.session_state["parent_verified"] = True
+            st.rerun()
+        else:
+            st.warning("Please ask a parent or guardian to verify before proceeding.")
+    st.stop()
+
 # --- Sidebar Navigation ---
 with st.sidebar:
     st.title("📂 Workspace")
@@ -171,7 +193,7 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # --- Profile Picture Section (Directly below Workspace) ---
+    # --- Profile Picture Section ---
     st.subheader("👤 Profile Picture")
     uploaded_profile = st.file_uploader("Upload Photo", type=["png", "jpg", "jpeg"], key="sidebar_profile_uploader")
     if uploaded_profile:
@@ -213,7 +235,7 @@ with st.sidebar:
                     st.rerun()
         st.markdown("---")
 
-    # Group Chats Sidebar History with Purple Band Indicator
+    # Group Chats Sidebar History
     st.subheader("🟣 Group Chat History")
     groups_query = db.collection("groups").stream()
     for g in groups_query:
@@ -225,7 +247,7 @@ with st.sidebar:
             can_view = True
         elif user_role == "Teacher Portal" and (g_type == "Student Group" or g_type == "Teacher Group"):
             can_view = True
-        elif user_role == "Principal Control Panel":
+        elif user_role in ["Principal Control Panel", "Parent Portal"]:
             can_view = True 
         elif user_role == "Personal Account":
             can_view = True
@@ -248,12 +270,21 @@ with st.sidebar:
     if st.button("Log out", use_container_width=True):
         save_user_session()
         st.session_state["logged_in"] = False
+        st.session_state["parent_verified"] = False
         st.rerun()
 
 # --- Security & Foul Language Checkers ---
 def detect_harmful_keywords(text):
     harmful_keywords = ["kill", "suicide", "harm", "hurt", "violence", "weapon", "gun", "die", "unalive"]
-    return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
+    found = any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
+    if found and user_role == "Personal Account":
+        # Log alert for parents
+        db.collection("parent_alerts").add({
+            "child": st.session_state["full_name"],
+            "alert": "Child expressed distressing or harmful thoughts.",
+            "time": datetime.now(timezone.utc).isoformat()
+        })
+    return found
 
 def detect_foul_language(text):
     foul_words = ["badword1", "badword2", "idiot", "stupid"]
@@ -272,10 +303,40 @@ def check_chat_suspension():
     return False
 
 # =====================================================================
+# PARENT PORTAL VIEW
+# =====================================================================
+if user_role == "Parent Portal":
+    st.title(f"Hello {st.session_state['full_name']} (Parent Dashboard)")
+    if st.session_state["parent_mode"] == "School Account Parent":
+        st.subheader("🏫 School Account Monitoring")
+        st.info("Here you can access your child's completed tasks and connect directly with teachers.")
+        # Teacher direct contact section
+        teacher_msg = st.text_area("Send direct message to teacher:")
+        if st.button("Send to Teacher"):
+            if teacher_msg.strip():
+                db.collection("teacher_parent_messages").add({
+                    "parent": st.session_state["full_name"],
+                    "message": teacher_msg,
+                    "time": datetime.now(timezone.utc).isoformat()
+                })
+                st.success("Message sent to teacher!")
+    else:
+        st.subheader("🏠 Personal Account Monitoring")
+        st.info("AI Safety Monitoring & Activity Tracker")
+        alerts = db.collection("parent_alerts").stream()
+        st.markdown("### ⚠️ Child Activity & Safety Alerts")
+        for alert in alerts:
+            a_data = alert.to_dict()
+            st.warning(f"**{a_data['child']}** - {a_data['alert']} ({a_data['time']})")
+        st.markdown("### 💡 Ways to Console Your Child")
+        st.markdown("- Listen actively and without judgment.\n- Reassure them of your unconditional support.\n- Connect with professional counseling or guidance if needed.")
+    st.stop()
+
+# =====================================================================
 # MODE 1: SOLO STUDY / AI CHAT
 # =====================================================================
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
-    st.title("🎓 Exegesis AI - Personal Tutor")
+    st.title(f"Hello {st.session_state['full_name']}! 🎓 Exegesis AI - Personal Tutor")
     
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
@@ -320,7 +381,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 # MODE 2: FRIENDS & STUDY GROUPS WITH @exegesis
 # =====================================================================
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
-    st.title("👥 Friends & Study Groups")
+    st.title(f"Hello {st.session_state['full_name']}! 👥 Friends & Study Groups")
     
     tab1, tab2, tab3 = st.tabs(["Friend Requests", "Create Group Chat", "Active Group Chat Room"])
     
@@ -339,6 +400,18 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 })
                 st.success("Friend request sent!")
                 
+        st.subheader("Roblox-Style Friends List")
+        accepted_reqs = db.collection("friend_requests").where("status", "==", "accepted").stream()
+        friend_cols = st.columns(4)
+        idx = 0
+        for r in accepted_reqs:
+            r_data = r.to_dict()
+            if r_data["from_fullname"] == st.session_state["full_name"] or r_data["to_fullname"] == st.session_state["full_name"]:
+                friend_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
+                with friend_cols[idx % 4]:
+                    st.markdown(f"🟢 **{friend_name}**\n*Online*")
+                idx += 1
+
         st.subheader("Pending Requests")
         reqs = db.collection("friend_requests").where("to_fullname", "==", st.session_state["full_name"]).where("status", "==", "pending").stream()
         for r in reqs:
@@ -429,20 +502,4 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                     "Content-Type": "application/json"
                                 },
                                 json={
-                                    "model": "meta-llama/llama-3.2-3b-instruct:free",
-                                    "messages": [
-                                        {"role": "system", "content": TUTOR_PROMPT},
-                                        {"role": "user", "content": group_input}
-                                    ]
-                                },
-                                timeout=20
-                            )
-                            ai_help = resp.json()["choices"][0]["message"]["content"].strip()
-                            db.collection("groups").document(selected_gid).collection("messages").add({
-                                "sender": "Exegesis AI 🤖",
-                                "text": ai_help,
-                                "time": datetime.now(timezone.utc).isoformat()
-                            })
-                        except Exception:
-                            pass
-                    st.rerun()
+                                    "model
