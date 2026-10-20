@@ -266,4 +266,73 @@ def generate_dynamic_safety_response(violation_text):
         )
         return response.json()["choices"][0]["message"]["content"].strip()
     except Exception:
-        return "Please connect with a counselor, family member, or teacher
+        return "Please connect with a counselor, family member, or teacher right away to keep you safe."
+
+def check_sadness(text):
+    sad_keywords = ["sad", "lonely", "down", "upset", "cry", "crying", "depressed"]
+    return any(word in text.lower() for word in sad_keywords)
+
+# =====================================================================
+# INTERFACE PANELS
+# =====================================================================
+st.title("🎓 Exegesis AI")
+st.subheader("Your guide for learning and a comforting pal when you need it.")
+
+for msg in st.session_state["messages"]:
+    if msg["role"] == "assistant":
+        avatar_img = "🤖"
+    else:
+        avatar_img = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
+        
+    with st.chat_message(msg["role"], avatar=avatar_img):
+        st.markdown(msg["content"])
+
+user_input = st.chat_input("Ask a question or type your answer...")
+
+if user_input:
+    st.session_state["messages"].append({"role": "user", "content": user_input})
+    
+    user_avatar = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
+    with st.chat_message("user", avatar=user_avatar):
+        st.markdown(user_input)
+
+    if detect_harmful_keywords(user_input):
+        with st.spinner("Exegesis AI is thinking..."):
+            safety_reply = generate_dynamic_safety_response(user_input)
+        st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
+        save_user_session()
+        st.rerun()
+
+    if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
+        st.session_state["is_sad_mode"] = True
+
+    weather_report = get_weather(st.session_state["user_city"])
+
+    realtime_info = (
+        f"\n\n[Context - Location for Weather: {st.session_state['user_city']} | "
+        f"Weather Details: {weather_report}]"
+    )
+
+    base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
+    full_system_prompt = base_prompt + realtime_info
+
+    chat_context = [{"role": "system", "content": full_system_prompt}] + st.session_state["messages"]
+    
+    with st.spinner("Exegesis AI is thinking..."):
+        try:
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions", 
+                headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, 
+                json={"model": "openrouter/free", "messages": chat_context}, 
+                timeout=20
+            )
+            ai_reply = response.json()["choices"][0]["message"]["content"].strip()
+            ai_reply = ai_reply.replace("User Safety: safe", "").replace("Response Safety: safe", "").strip()
+            if not ai_reply:
+                ai_reply = "I'm here! What would you like to talk about or work on?"
+        except Exception:
+            ai_reply = "⚠️ Sync error. Please resubmit your response."
+            
+    st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
+    save_user_session()
+    st.rerun()
