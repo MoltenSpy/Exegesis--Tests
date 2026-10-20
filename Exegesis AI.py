@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import base64
 
 st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
@@ -52,10 +52,10 @@ def save_user_session():
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
-# --- Weather & Timezone Offset Function ---
+# --- Weather Function (Only Temperature & Conditions) ---
 def get_weather(city_name):
     if not city_name:
-        return "Please enter a location.", 0
+        return "Please enter a location."
     try:
         url_j1 = f"https://wttr.in/{city_name}?format=j1"
         resp_j1 = requests.get(url_j1, timeout=5)
@@ -75,29 +75,26 @@ def get_weather(city_name):
             min_f = today["mintempF"]
             max_f = today["maxtempF"]
             
-            # Extract Timezone Offset (in seconds)
-            tz_str = data["nearest_area"][0]["time_zone"][0]["offsetSecs"]
-            tz_offset_seconds = int(tz_str)
-            
             weather_text = (
                 f"**Condition:** {condition}\n\n"
                 f"🌡️ **Current:** {temp_c}°C / {temp_f}°F\n\n"
                 f"📉 **Lowest:** {min_c}°C / {min_f}°F\n\n"
                 f"📈 **Highest:** {max_c}°C / {max_f}°F"
             )
-            return weather_text, tz_offset_seconds
+            return weather_text
     except Exception:
         pass
-    return "Unable to fetch weather data.", 0
+    return "Unable to fetch weather data."
 
 # --- System Prompt Engineering Blocks ---
 TUTOR_PROMPT = (
-    "You are Exegesis AI, a friendly tutor for school students. "
+    "You are Exegesis AI, a friendly tutor for school students.\n"
     "Follow a strict scaffolding process for questions or problems:\n"
     "1. Never give the final answer right away.\n"
     "2. Provide exactly up to 3 progressive hints over the conversation.\n"
     "3. Do NOT include meta-labels or describe the hint level.\n"
-    "4. If the user asks about the time or weather of their location, use the provided real-time context to answer accurately."
+    "4. TIME INSTRUCTIONS: If the user asks for the current time, tell them you do not know their location and ask which country or city they are in. "
+    "If the user provides a country or city, calculate and tell them the current local time for that location."
 )
 FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
@@ -210,7 +207,7 @@ with st.sidebar:
         st.session_state["user_city"] = user_location
         save_user_session()
         
-    weather_info, _ = get_weather(st.session_state["user_city"])
+    weather_info = get_weather(st.session_state["user_city"])
     st.markdown(weather_info)
 
     st.markdown("---")
@@ -269,78 +266,4 @@ def generate_dynamic_safety_response(violation_text):
         )
         return response.json()["choices"][0]["message"]["content"].strip()
     except Exception:
-        return "Please connect with a counselor, family member, or teacher right away to keep you safe."
-
-def check_sadness(text):
-    sad_keywords = ["sad", "lonely", "down", "upset", "cry", "crying", "depressed"]
-    return any(word in text.lower() for word in sad_keywords)
-
-# =====================================================================
-# INTERFACE PANELS
-# =====================================================================
-st.title("🎓 Exegesis AI")
-st.subheader("Your guide for learning and a comforting pal when you need it.")
-
-for msg in st.session_state["messages"]:
-    if msg["role"] == "assistant":
-        avatar_img = "🤖"
-    else:
-        avatar_img = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
-        
-    with st.chat_message(msg["role"], avatar=avatar_img):
-        st.markdown(msg["content"])
-
-user_input = st.chat_input("Ask a question or type your answer...")
-
-if user_input:
-    st.session_state["messages"].append({"role": "user", "content": user_input})
-    
-    user_avatar = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
-    with st.chat_message("user", avatar=user_avatar):
-        st.markdown(user_input)
-
-    if detect_harmful_keywords(user_input):
-        with st.spinner("Exegesis AI is thinking..."):
-            safety_reply = generate_dynamic_safety_response(user_input)
-        st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
-        save_user_session()
-        st.rerun()
-
-    if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
-        st.session_state["is_sad_mode"] = True
-
-    # Calculate live weather & exact local time at the moment user submits
-    weather_report, tz_offset = get_weather(st.session_state["user_city"])
-    utc_now = datetime.now(timezone.utc)
-    local_city_time = utc_now.astimezone(timezone(timedelta(seconds=tz_offset)))
-    formatted_local_time = local_city_time.strftime("%I:%M:%S %p (%A, %B %d, %Y)")
-
-    realtime_info = (
-        f"\n\n[Context - Location: {st.session_state['user_city']} | "
-        f"Exact Current Local Time: {formatted_local_time} | "
-        f"Weather Details: {weather_report}]"
-    )
-
-    base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
-    full_system_prompt = base_prompt + realtime_info
-
-    chat_context = [{"role": "system", "content": full_system_prompt}] + st.session_state["messages"]
-    
-    with st.spinner("Exegesis AI is thinking..."):
-        try:
-            response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions", 
-                headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, 
-                json={"model": "openrouter/free", "messages": chat_context}, 
-                timeout=20
-            )
-            ai_reply = response.json()["choices"][0]["message"]["content"].strip()
-            ai_reply = ai_reply.replace("User Safety: safe", "").replace("Response Safety: safe", "").strip()
-            if not ai_reply:
-                ai_reply = "I'm here! What would you like to talk about or work on?"
-        except Exception:
-            ai_reply = "⚠️ Sync error. Please resubmit your response."
-            
-    st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
-    save_user_session()
-    st.rerun()
+        return "Please connect with a counselor, family member, or teacher
