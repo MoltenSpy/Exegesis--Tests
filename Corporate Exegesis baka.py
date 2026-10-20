@@ -29,26 +29,24 @@ TUTOR_CHAT_PROMPT = "You are Exegesis AI, a friendly tutor for school students. 
 FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend. Speak like a kind peer or trusted friend to a student who feels sad."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder. Provide a unique, highly specific empathetic response urging a student to connect with a trusted adult."
 
-# --- Mock Cloud Database Initialization ---
+# --- Mock Cloud Database & User Registry ---
 if "mock_db_initialized" not in st.session_state:
     st.session_state["school_ai_enabled"] = True
-    st.session_state["allowed_school_domain"] = "school.org"
-    
     st.session_state["assigned_school_tasks"] = [
         "Complete Quadratic Formula practice sheet",
         "Read Chapter 3 on plant cell structures"
     ]
-    
-    st.session_state["student_query_logs"] = {
-        "Aarav Sharma (Grade 9)": [
-            {"topic": "Quadratic Equations", "timestamp": "10:15 AM", "flags": "None", "mode": "Study Mode"},
-            {"topic": "Photosynthesis", "timestamp": "Yesterday", "flags": "None", "mode": "Study Mode"}
-        ]
+    # Stores username: {"password": str, "messages": [], "account_type": str, "gender": str}
+    st.session_state["users_db"] = {
+        "Aarav": {"password": "123", "messages": [], "account_type": "Student Portal", "gender": "Male"}
     }
     st.session_state["mock_db_initialized"] = True
 
-# --- Persistent Chat State Controls ---
-if "chat_history" not in st.session_state: st.session_state["chat_history"] = []
+# Persistent Chat State Controls
+if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
+if "user_name" not in st.session_state: st.session_state["user_name"] = ""
+if "account_type" not in st.session_state: st.session_state["account_type"] = ""
+if "user_gender" not in st.session_state: st.session_state["user_gender"] = "Not Disclosed"
 if "current_topic" not in st.session_state: st.session_state["current_topic"] = None
 if "hints" not in st.session_state: st.session_state["hints"] = {}
 if "explanation" not in st.session_state: st.session_state["explanation"] = ""
@@ -57,52 +55,57 @@ if "show_explanation" not in st.session_state: st.session_state["show_explanatio
 if "messages" not in st.session_state: st.session_state["messages"] = []
 if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
 
-# Profile Authentication States
-if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
-if "user_name" not in st.session_state: st.session_state["user_name"] = ""
-if "account_type" not in st.session_state: st.session_state["account_type"] = ""
-if "user_gender" not in st.session_state: st.session_state["user_gender"] = "Not Disclosed"
-if "user_avatar" not in st.session_state: st.session_state["user_avatar"] = "👤"
-
-# --- Onboarding Login Screen ---
+# --- Onboarding Login & Signup Screen ---
 if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
-    st.write("Please configure your institutional login credentials.")
+    
+    auth_mode = st.radio("Choose Action", ["Log In", "Create Account"], horizontal=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        entered_email = st.text_input("School or Personal Email Address", placeholder="name@domain.com")
+        entered_name = st.text_input("Your Name", placeholder="e.g. Alex")
+        entered_pass = st.text_input("Password", type="password", placeholder="Enter your password")
         
-        if entered_email.strip() != "" and "@" in entered_email:
-            st.markdown("---")
-            acc_choice = st.radio(
-                "Access Portal Role", 
-                ["Student Portal", "Teacher Portal", "Principal Control Panel", "Personal Account"]
-            )
+        if auth_mode == "Create Account":
+            acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "Principal Control Panel", "Personal Account"])
+            gender_choice = st.radio("Select Gender", ["Male", "Female", "Other"])
             
-            gender_choice = "Not Disclosed"
-            if acc_choice not in ["Student Portal", "Teacher Portal", "Principal Control Panel"]:
-                st.markdown("---")
-                gender_choice = st.radio("Select Gender", ["Male", "Female", "Other"])
-                
-            if st.button("Authenticate Workspace Entry", use_container_width=True):
-                email_domain = entered_email.split("@")[-1].lower()
-                
-                if acc_choice in ["Student Portal", "Teacher Portal"] and email_domain != st.session_state["allowed_school_domain"]:
-                    st.error(f"Access Denied. Your school domain must be @{st.session_state['allowed_school_domain']}. Contact admin.")
+            if st.button("Register Account", use_container_width=True):
+                clean_name = entered_name.strip()
+                if clean_name == "" or entered_pass == "":
+                    st.error("Name and password cannot be empty.")
+                elif clean_name in st.session_state["users_db"]:
+                    st.error("Username already exists. Please log in.")
                 else:
-                    st.session_state["user_name"] = entered_email.split("@")[0].capitalize()
-                    st.session_state["account_type"] = acc_choice
-                    st.session_state["user_gender"] = gender_choice
-                    st.session_state["logged_in"] = True
-                    st.session_state["user_avatar"] = "👤"
-                    st.rerun()
+                    st.session_state["users_db"][clean_name] = {
+                        "password": entered_pass,
+                        "messages": [],
+                        "account_type": acc_choice,
+                        "gender": gender_choice
+                    }
+                    st.success("Account created successfully! Switch to 'Log In' to enter.")
         else:
-            st.info("Enter a valid email structure to unlock role configurations.")
+            if st.button("Log In to Workspace", use_container_width=True):
+                clean_name = entered_name.strip()
+                if clean_name in st.session_state["users_db"] and st.session_state["users_db"][clean_name]["password"] == entered_pass:
+                    user_data = st.session_state["users_db"][clean_name]
+                    st.session_state["user_name"] = clean_name
+                    st.session_state["account_type"] = user_data["account_type"]
+                    st.session_state["user_gender"] = user_data["gender"]
+                    st.session_state["messages"] = user_data["messages"]
+                    st.session_state["logged_in"] = True
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password.")
     st.stop()
 
 user_name = st.session_state["user_name"]
 account_label = st.session_state["account_type"]
+
+# Helper to save messages back to the mock database dictionary
+def save_user_session():
+    if user_name in st.session_state["users_db"]:
+        st.session_state["users_db"][user_name]["messages"] = st.session_state["messages"]
 
 # --- Navigation Sidebar Interface Engine ---
 with st.sidebar:
@@ -111,6 +114,7 @@ with st.sidebar:
     st.write(f"🏫 **Access:** {account_label}")
     
     if st.button("Log out System Session", use_container_width=True):
+        save_user_session()
         st.session_state["logged_in"] = False
         st.rerun()
         
@@ -151,6 +155,7 @@ with st.sidebar:
             st.session_state["show_explanation"] = False
             st.session_state["messages"] = []
             st.session_state["is_sad_mode"] = False
+            save_user_session()
             st.rerun()
 
 # --- Security & Keyword Core Engines ---
@@ -182,40 +187,33 @@ def check_sadness(text):
 # =====================================================================
 if account_label == "Principal Control Panel":
     st.title("🛡️ Institutional Admin Console")
-    st.write("Manage systemic artificial intelligence guardrails and domain access tokens for your school network.")
+    st.write("Manage systemic artificial intelligence guardrails.")
     
     if st.session_state["school_ai_enabled"]:
-        st.success("🟢 Exegesis AI Scaffolding Engines are currently **ACTIVE** across the school network.")
-        if st.button("🔴 Turn Off School AI Access (Global Kill Switch)", use_container_width=True):
+        st.success("🟢 Exegesis AI Scaffolding Engines are currently **ACTIVE**.")
+        if st.button("🔴 Turn Off School AI Access", use_container_width=True):
             st.session_state["school_ai_enabled"] = False
             st.rerun()
     else:
-        st.error("🔴 Exegesis AI Scaffolding Engines are currently **DISABLED** by administrative command.")
+        st.error("🔴 Exegesis AI Scaffolding Engines are currently **DISABLED**.")
         if st.button("🟢 Turn On School AI Access", use_container_width=True):
             st.session_state["school_ai_enabled"] = True
             st.rerun()
 
 # =====================================================================
-# INTERFACE PANEL 2: TEACHER PORTAL & ANALYTICS DASHBOARD
+# INTERFACE PANEL 2: TEACHER PORTAL
 # =====================================================================
 elif account_label == "Teacher Portal":
     st.title("📋 Teacher Monitoring Dashboard")
-    st.write("Track your student's live AI queries and scaffolding usage metrics.")
-    
-    selected_student = st.selectbox("Active Class Roster Registry", list(st.session_state["student_query_logs"].keys()))
-    student_logs = st.session_state["student_query_logs"][selected_student]
-    for log in student_logs:
-        col1, col2, col3 = st.columns(3)
-        with col1: st.info(f"📝 **Query Subject:** {log['topic']}")
-        with col2: st.write(f"⏱️ Logged: {log['timestamp']}")
-        with col3: st.success(f"🍏 Status: {log['flags']}")
+    st.write("Track student activity and accounts.")
+    st.write(f"Registered Users in Database: {list(st.session_state['users_db'].keys())}")
 
 # =====================================================================
 # INTERFACE PANEL 3: STUDENT & PERSONAL TUTOR PORTAL
 # =====================================================================
 else:
     if not st.session_state["school_ai_enabled"] and account_label == "Student Portal":
-        st.error("🔒 Access Suspended. Your school administration has temporarily disabled the AI tutor platform.")
+        st.error("🔒 Access Suspended by administration.")
         st.stop()
 
     st.title("🎓 Exegesis Learning Space")
@@ -231,6 +229,7 @@ else:
             st.session_state["messages"].append({"role": "user", "content": user_input})
             st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
             st.session_state["current_topic"] = "Safety Intercept Notice"
+            save_user_session()
             st.rerun()
 
         if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
@@ -245,6 +244,7 @@ else:
                 st.session_state["messages"].append({"role": "assistant", "content": response.json()["choices"][0]["message"]["content"].strip()})
             except Exception:
                 st.session_state["messages"].append({"role": "assistant", "content": "I'm right here with you."})
+            save_user_session()
             st.rerun()
 
         elif st.session_state["current_topic"] is None:
@@ -259,6 +259,7 @@ else:
             except Exception:
                 st.error("API Error. Please retype topic.")
                 st.session_state["current_topic"] = None
+            save_user_session()
             st.rerun()
         else:
             st.session_state["messages"].append({"role": "user", "content": user_input})
@@ -275,12 +276,13 @@ else:
                 st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
             except Exception:
                 st.session_state["messages"].append({"role": "assistant", "content": "⚠️ Sync error. Please resubmit."})
+            save_user_session()
             st.rerun()
 
     # --- Student UI Rendering Logic Panels ---
     if st.session_state["current_topic"] in ["Safety Intercept Notice", "Friendship Space"] or st.session_state["is_sad_mode"]:
         for msg in st.session_state["messages"]:
-            avatar_img = "🤖" if msg["role"] == "assistant" else st.session_state["user_avatar"]
+            avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
             with st.chat_message(msg["role"], avatar=avatar_img):
                 st.markdown(msg["content"])
                 
@@ -304,10 +306,9 @@ else:
             st.success(st.session_state["explanation"])
             st.markdown("---")
 
-        # Fixed: Chat history loop is now rendered here so messages always show up!
         if len(st.session_state["messages"]) > 0:
             st.subheader("💬 Chat Messages")
             for msg in st.session_state["messages"]:
-                avatar_img = "🤖" if msg["role"] == "assistant" else st.session_state["user_avatar"]
+                avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
                 with st.chat_message(msg["role"], avatar=avatar_img):
                     st.markdown(msg["content"])
