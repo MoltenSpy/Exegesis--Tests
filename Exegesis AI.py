@@ -503,3 +503,4 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                 },
                                 json={
                                     "model"
+                                           }
