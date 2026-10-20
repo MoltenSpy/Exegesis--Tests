@@ -319,4 +319,4 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 # =====================================================================
 # MODE 2: FRIENDS & STUDY GROUPS WITH @exegesis
 # =====================================================================
-elif st.session_state["app_mode"] == "👥 Friends
+elif st.session_state["app_mode"] == "👥 Friends"
