@@ -91,7 +91,7 @@ if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
     st.write("Please enter your name to start.")
 
-    col1, col2 = st.columns()
+    col1, col2 = st.columns([1,2])
     with col1:
         entered_name = st.text_input("Your Name", placeholder="e.g., Alex")
 
