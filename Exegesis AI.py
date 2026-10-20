@@ -19,6 +19,7 @@ else:
 def init_firebase():
     if not firebase_admin._apps:
         cred_dict = dict(st.secrets["firebase"])
+        # Handles escaped newlines if using single-line string formatting
         cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
@@ -261,4 +262,3 @@ if user_input:
     st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
     save_user_session()
     st.rerun()
-
