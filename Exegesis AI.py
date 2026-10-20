@@ -238,19 +238,10 @@ with st.sidebar:
     groups_query = db.collection("groups").stream()
     for g in groups_query:
         g_data = g.to_dict()
-        g_type = g_data.get("group_type", "Student Group")
+        members = g_data.get("members", [])
         
-        can_view = False
-        if user_role == "Student Portal" and g_type == "Student Group":
-            can_view = True
-        elif user_role == "Teacher Portal" and (g_type == "Student Group" or g_type == "Teacher Group"):
-            can_view = True
-        elif user_role in ["Principal Control Panel", "Parent Portal"]:
-            can_view = True 
-        elif user_role == "Personal Account":
-            can_view = True
-
-        if can_view:
+        # Check if current user is the creator or a member
+        if user_name in members or g_data.get("creator") == st.session_state["full_name"]:
             if st.button(f"🟣 {g_data['name']}", key=f"sidebar_group_{g.id}", use_container_width=True):
                 st.session_state["active_group_id"] = g.id
                 st.session_state["app_mode"] = "👥 Friends & Study Groups"
@@ -422,7 +413,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
     with tab2:
         st.subheader("Create a New Study Group")
         new_group_name = st.text_input("Group Name")
-        group_type_choice = st.selectbox("Group Category", ["Student Group", "Teacher Group"])
+        members_input = st.text_input("Member Usernames (separate with commas)", placeholder="e.g. john123, alex_99")
         uploaded_group_pic = st.file_uploader("Group Profile Picture", type=["png", "jpg", "jpeg"], key="group_pic_upload")
         
         if st.button("Create Group"):
@@ -433,9 +424,14 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 if uploaded_group_pic:
                     pic_data = f"data:image/png;base64,{base64.b64encode(uploaded_group_pic.read()).decode('utf-8')}"
                 
+                # Parse member usernames list and include creator
+                parsed_members = [m.strip() for m in members_input.split(",") if m.strip()]
+                if user_name not in parsed_members:
+                    parsed_members.append(user_name)
+                
                 group_ref = db.collection("groups").add({
                     "name": new_group_name.strip(),
-                    "group_type": group_type_choice,
+                    "members": parsed_members,
                     "creator": st.session_state["full_name"],
                     "profile_pic": pic_data,
                     "created_at": datetime.now(timezone.utc).isoformat()
