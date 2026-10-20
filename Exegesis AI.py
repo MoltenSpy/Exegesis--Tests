@@ -502,4 +502,4 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                     "Content-Type": "application/json"
                                 },
                                 json={
-                                    "model
+                                    "model"
