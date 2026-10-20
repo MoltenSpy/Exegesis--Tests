@@ -9,12 +9,8 @@ import extra_streamlit_components as stx
 
 st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
 
-# --- Initialize Cookie Manager ---
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+# --- Initialize Cookie Manager directly without @st.cache_resource ---
+cookie_manager = stx.CookieManager(key="exegesis_cookie_mgr")
 
 # --- Secure API Secrets Fetching ---
 if "OPENROUTER_API_KEY" in st.secrets:
@@ -176,7 +172,6 @@ if not st.session_state["logged_in"]:
                         st.session_state["attempts"] = user_data.get("attempts", 0)
                         st.session_state["logged_in"] = True
                         
-                        # Set cookie to stay logged in across refreshes
                         cookie_manager.set("exegesis_user", clean_name, key="set_login_cookie")
                         st.rerun()
                     else:
