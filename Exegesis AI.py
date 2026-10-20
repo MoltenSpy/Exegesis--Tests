@@ -397,7 +397,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 })
                 st.success("Friend request sent!")
                 
-        st.subheader("Roblox-Style Friends List")
+        st.subheader("Your Friends")
         accepted_reqs = db.collection("friend_requests").where("status", "==", "accepted").stream()
         friend_cols = st.columns(4)
         idx = 0
@@ -406,7 +406,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             if r_data["from_fullname"] == st.session_state["full_name"] or r_data["to_fullname"] == st.session_state["full_name"]:
                 friend_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
                 with friend_cols[idx % 4]:
-                    st.markdown(f"🟢 **{friend_name}**\n*Online*")
+                    st.markdown(f"👤 **{friend_name}**")
                 idx += 1
 
         st.subheader("Pending Requests")
