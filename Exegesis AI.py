@@ -5,8 +5,16 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 import base64
+import extra_streamlit_components as stx
 
 st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
+
+# --- Initialize Cookie Manager ---
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
 
 # --- Secure API Secrets Fetching ---
 if "OPENROUTER_API_KEY" in st.secrets:
@@ -57,11 +65,9 @@ def get_weather(city_name):
     if not city_name:
         return "Please enter a location."
     try:
-        # Fetch weather condition and temperature in Celsius
         url_c = f"https://wttr.in/{city_name}?format=%C+%t"
         resp_c = requests.get(url_c, timeout=5)
         
-        # Fetch temperature in Fahrenheit
         url_f = f"https://wttr.in/{city_name}?format=%f"
         resp_f = requests.get(url_f, timeout=5)
         
@@ -98,6 +104,23 @@ if "attempts" not in st.session_state: st.session_state["attempts"] = 0
 if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
 if "temp_profile_pic" not in st.session_state: st.session_state["temp_profile_pic"] = ""
 if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
+
+# --- Cookie-Based Persistent Login Check ---
+saved_username = cookie_manager.get(cookie="exegesis_user")
+if saved_username and not st.session_state["logged_in"]:
+    doc_ref, doc = get_user_doc(saved_username)
+    if doc.exists:
+        user_data = doc.to_dict()
+        st.session_state["user_name"] = saved_username
+        st.session_state["account_type"] = user_data.get("account_type", "Personal Account")
+        st.session_state["user_gender"] = user_data.get("gender", "Not Disclosed")
+        st.session_state["messages"] = user_data.get("messages", [])
+        st.session_state["chat_history"] = user_data.get("chat_history", [])
+        st.session_state["profile_pic"] = user_data.get("profile_pic", "")
+        st.session_state["user_city"] = user_data.get("user_city", "London")
+        st.session_state["hint_step"] = user_data.get("hint_step", 0)
+        st.session_state["attempts"] = user_data.get("attempts", 0)
+        st.session_state["logged_in"] = True
 
 # --- Onboarding Login & Signup Screen ---
 if not st.session_state["logged_in"]:
@@ -152,6 +175,9 @@ if not st.session_state["logged_in"]:
                         st.session_state["hint_step"] = user_data.get("hint_step", 0)
                         st.session_state["attempts"] = user_data.get("attempts", 0)
                         st.session_state["logged_in"] = True
+                        
+                        # Set cookie to stay logged in across refreshes
+                        cookie_manager.set("exegesis_user", clean_name, key="set_login_cookie")
                         st.rerun()
                     else:
                         st.error("Invalid username or password.")
@@ -189,12 +215,10 @@ with st.sidebar:
     # Weather & Time Display below profile picture
     st.subheader("🌤️ Weather & Time Report")
     
-    # Day and Time
     current_dt = datetime.now()
     st.write(f"📅 **Date:** {current_dt.strftime('%A, %B %d, %Y')}")
     st.write(f"⏰ **Time:** {current_dt.strftime('%I:%M %p')}")
     
-    # City input for weather
     user_location = st.text_input("Enter Location for Weather:", value=st.session_state["user_city"])
     if user_location != st.session_state["user_city"]:
         st.session_state["user_city"] = user_location
@@ -210,6 +234,7 @@ with st.sidebar:
     if st.button("Log out System Session", use_container_width=True):
         save_user_session()
         st.session_state["logged_in"] = False
+        cookie_manager.delete("exegesis_user", key="delete_login_cookie")
         st.rerun()
 
     st.markdown("---")
@@ -285,4 +310,47 @@ user_input = st.chat_input("Ask a question or type your answer...")
 if user_input:
     st.session_state["messages"].append({"role": "user", "content": user_input})
     
-    user_avatar = st.session_state.get("profile_pic")
+    user_avatar = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
+    with st.chat_message("user", avatar=user_avatar):
+        st.markdown(user_input)
+
+    if detect_harmful_keywords(user_input):
+        with st.spinner("Exegesis AI is thinking..."):
+            safety_reply = generate_dynamic_safety_response(user_input)
+        st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
+        save_user_session()
+        st.rerun()
+
+    if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
+        st.session_state["is_sad_mode"] = True
+
+    current_dt = datetime.now()
+    date_str = current_dt.strftime("%A, %B %d, %Y")
+    time_str = current_dt.strftime("%I:%M %p")
+    location_weather = get_weather(st.session_state["user_city"])
+    
+    realtime_info = f"\n\n[Context: Date: {date_str} | Time: {time_str} | Location: {st.session_state['user_city']} | Weather: {location_weather}]"
+
+    base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
+    full_system_prompt = base_prompt + realtime_info
+
+    chat_context = [{"role": "system", "content": full_system_prompt}] + st.session_state["messages"]
+    
+    with st.spinner("Exegesis AI is thinking..."):
+        try:
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions", 
+                headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, 
+                json={"model": "openrouter/free", "messages": chat_context}, 
+                timeout=20
+            )
+            ai_reply = response.json()["choices"][0]["message"]["content"].strip()
+            ai_reply = ai_reply.replace("User Safety: safe", "").replace("Response Safety: safe", "").strip()
+            if not ai_reply:
+                ai_reply = "I'm here! What would you like to talk about or work on?"
+        except Exception:
+            ai_reply = "⚠️ Sync error. Please resubmit your response."
+            
+    st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
+    save_user_session()
+    st.rerun()
