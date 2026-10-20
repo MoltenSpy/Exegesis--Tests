@@ -48,8 +48,22 @@ def save_user_session():
             "account_type": st.session_state.get("account_type", ""),
             "gender": st.session_state.get("user_gender", ""),
             "profile_pic": st.session_state.get("profile_pic", ""),
+            "user_city": st.session_state.get("user_city", "London"),
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
+
+# --- Helper Function for Live Weather ---
+def get_weather(city_name):
+    if not city_name:
+        return "Please enter a location."
+    try:
+        url = f"https://wttr.in/{city_name}?format=%C+%t"
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            return response.text.strip()
+    except Exception:
+        pass
+    return "Unable to fetch weather"
 
 # --- System Prompt Engineering Blocks ---
 TUTOR_PROMPT = (
@@ -58,19 +72,12 @@ TUTOR_PROMPT = (
     "1. Never give the final answer right away.\n"
     "2. Provide exactly up to 3 progressive hints over the conversation.\n"
     "3. Do NOT include meta-labels or describe the hint level.\n"
-    "4. If the user asks you to guess something fun or harmless like their age, height, or weight, make a playful, lighthearted guess!"
+    "4. If the user asks about the date, time, or weather, use the provided context to answer."
 )
-FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend to a student. If they ask you to guess something fun like their age or height, make a playful guess!"
+FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
 
 # --- Initialize App Session States ---
-if "school_ai_enabled" not in st.session_state: st.session_state["school_ai_enabled"] = True
-if "assigned_school_tasks" not in st.session_state:
-    st.session_state["assigned_school_tasks"] = [
-        "Complete Quadratic Formula practice sheet",
-        "Read Chapter 3 on plant cell structures"
-    ]
-
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 if "user_name" not in st.session_state: st.session_state["user_name"] = ""
 if "account_type" not in st.session_state: st.session_state["account_type"] = ""
@@ -82,6 +89,7 @@ if "hint_step" not in st.session_state: st.session_state["hint_step"] = 0
 if "attempts" not in st.session_state: st.session_state["attempts"] = 0
 if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
 if "temp_profile_pic" not in st.session_state: st.session_state["temp_profile_pic"] = ""
+if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
 
 # --- Onboarding Login & Signup Screen ---
 if not st.session_state["logged_in"]:
@@ -114,7 +122,8 @@ if not st.session_state["logged_in"]:
                             "attempts": 0,
                             "account_type": acc_choice,
                             "gender": gender_choice,
-                            "profile_pic": ""
+                            "profile_pic": "",
+                            "user_city": "London"
                         })
                         st.success("Account created successfully! Switch to 'Log In'.")
         else:
@@ -131,6 +140,7 @@ if not st.session_state["logged_in"]:
                         st.session_state["messages"] = user_data.get("messages", [])
                         st.session_state["chat_history"] = user_data.get("chat_history", [])
                         st.session_state["profile_pic"] = user_data.get("profile_pic", "")
+                        st.session_state["user_city"] = user_data.get("user_city", "London")
                         st.session_state["hint_step"] = user_data.get("hint_step", 0)
                         st.session_state["attempts"] = user_data.get("attempts", 0)
                         st.session_state["logged_in"] = True
@@ -166,6 +176,26 @@ with st.sidebar:
             st.success("Profile picture updated!")
             st.rerun()
 
+    st.markdown("---")
+    
+    # Weather & Time Display below profile picture
+    st.subheader("🌤️ Weather & Time Report")
+    
+    # Day and Time
+    current_dt = datetime.now()
+    st.write(f"📅 **Date:** {current_dt.strftime('%A, %B %d, %Y')}")
+    st.write(f"⏰ **Time:** {current_dt.strftime('%I:%M %p')}")
+    
+    # City input for weather
+    user_location = st.text_input("Enter Location for Weather:", value=st.session_state["user_city"])
+    if user_location != st.session_state["user_city"]:
+        st.session_state["user_city"] = user_location
+        save_user_session()
+        
+    weather_info = get_weather(st.session_state["user_city"])
+    st.info(f"🌡️ **Weather in {st.session_state['user_city']}:** {weather_info}")
+
+    st.markdown("---")
     st.write(f"👤 **Active User:** {user_name}")
     st.write(f"🏫 **Access:** {account_label}")
     
@@ -261,7 +291,18 @@ if user_input:
     if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
         st.session_state["is_sad_mode"] = True
 
-    chat_context = [{"role": "system", "content": FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT}] + st.session_state["messages"]
+    # Build Context for AI
+    current_dt = datetime.now()
+    date_str = current_dt.strftime("%A, %B %d, %Y")
+    time_str = current_dt.strftime("%I:%M %p")
+    location_weather = get_weather(st.session_state["user_city"])
+    
+    realtime_info = f"\n\n[Context: Date: {date_str} | Time: {time_str} | Location: {st.session_state['user_city']} | Weather: {location_weather}]"
+
+    base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
+    full_system_prompt = base_prompt + realtime_info
+
+    chat_context = [{"role": "system", "content": full_system_prompt}] + st.session_state["messages"]
     
     with st.spinner("Exegesis AI is thinking..."):
         try:
@@ -272,7 +313,6 @@ if user_input:
                 timeout=20
             )
             ai_reply = response.json()["choices"][0]["message"]["content"].strip()
-            # Clean up potential safety debug tags from free models
             ai_reply = ai_reply.replace("User Safety: safe", "").replace("Response Safety: safe", "").strip()
             if not ai_reply:
                 ai_reply = "I'm here! What would you like to talk about or work on?"
