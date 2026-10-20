@@ -1,3 +1,4 @@
 streamlit
 requests
 streamlit-google-auth
+firebase-admin
