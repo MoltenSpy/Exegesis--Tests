@@ -52,15 +52,23 @@ def save_user_session():
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
-# --- Helper Function for Live Weather ---
+# --- Helper Function for Live Weather (Celsius & Fahrenheit) ---
 def get_weather(city_name):
     if not city_name:
         return "Please enter a location."
     try:
-        url = f"https://wttr.in/{city_name}?format=%C+%t"
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            return response.text.strip()
+        # Fetch weather condition and temperature in Celsius
+        url_c = f"https://wttr.in/{city_name}?format=%C+%t"
+        resp_c = requests.get(url_c, timeout=5)
+        
+        # Fetch temperature in Fahrenheit
+        url_f = f"https://wttr.in/{city_name}?format=%f"
+        resp_f = requests.get(url_f, timeout=5)
+        
+        if resp_c.status_code == 200 and resp_f.status_code == 200:
+            cond_c = resp_c.text.strip()
+            temp_f = resp_f.text.strip()
+            return f"{cond_c} / {temp_f}"
     except Exception:
         pass
     return "Unable to fetch weather"
@@ -277,48 +285,4 @@ user_input = st.chat_input("Ask a question or type your answer...")
 if user_input:
     st.session_state["messages"].append({"role": "user", "content": user_input})
     
-    user_avatar = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
-    with st.chat_message("user", avatar=user_avatar):
-        st.markdown(user_input)
-
-    if detect_harmful_keywords(user_input):
-        with st.spinner("Exegesis AI is thinking..."):
-            safety_reply = generate_dynamic_safety_response(user_input)
-        st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
-        save_user_session()
-        st.rerun()
-
-    if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
-        st.session_state["is_sad_mode"] = True
-
-    # Build Context for AI
-    current_dt = datetime.now()
-    date_str = current_dt.strftime("%A, %B %d, %Y")
-    time_str = current_dt.strftime("%I:%M %p")
-    location_weather = get_weather(st.session_state["user_city"])
-    
-    realtime_info = f"\n\n[Context: Date: {date_str} | Time: {time_str} | Location: {st.session_state['user_city']} | Weather: {location_weather}]"
-
-    base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
-    full_system_prompt = base_prompt + realtime_info
-
-    chat_context = [{"role": "system", "content": full_system_prompt}] + st.session_state["messages"]
-    
-    with st.spinner("Exegesis AI is thinking..."):
-        try:
-            response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions", 
-                headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, 
-                json={"model": "openrouter/free", "messages": chat_context}, 
-                timeout=20
-            )
-            ai_reply = response.json()["choices"][0]["message"]["content"].strip()
-            ai_reply = ai_reply.replace("User Safety: safe", "").replace("Response Safety: safe", "").strip()
-            if not ai_reply:
-                ai_reply = "I'm here! What would you like to talk about or work on?"
-        except Exception:
-            ai_reply = "⚠️ Sync error. Please resubmit your response."
-            
-    st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
-    save_user_session()
-    st.rerun()
+    user_avatar = st.session_state.get("profile_pic")
