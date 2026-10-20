@@ -132,7 +132,8 @@ if not st.session_state["logged_in"]:
                             "chat_history": [],
                             "friends": [],
                             "account_type": acc_choice,
-                            "user_city": "London"
+                            "user_city": "London",
+                            "profile_pic": ""
                         })
                         st.success("Account created successfully! Switch to 'Log In'.")
         else:
@@ -150,6 +151,7 @@ if not st.session_state["logged_in"]:
                         st.session_state["chat_history"] = user_data.get("chat_history", [])
                         st.session_state["friends"] = user_data.get("friends", [])
                         st.session_state["user_city"] = user_data.get("user_city", "London")
+                        st.session_state["profile_pic"] = user_data.get("profile_pic", "")
                         st.session_state["logged_in"] = True
                         st.rerun()
                     else:
@@ -167,6 +169,20 @@ with st.sidebar:
     
     st.session_state["app_mode"] = st.radio("Select Mode", ["Solo Study / AI Chat", "👥 Friends & Study Groups"])
     
+    st.markdown("---")
+    
+    # --- Profile Picture Section (Below Workspace) ---
+    st.subheader("👤 Profile Picture")
+    uploaded_profile = st.file_uploader("Upload Photo", type=["png", "jpg", "jpeg"], key="sidebar_profile_uploader")
+    if uploaded_profile:
+        pic_bytes = base64.b64encode(uploaded_profile.read()).decode("utf-8")
+        st.session_state["profile_pic"] = f"data:image/png;base64,{pic_bytes}"
+        save_user_session()
+        st.success("Profile picture updated!")
+
+    if st.session_state["profile_pic"]:
+        st.image(st.session_state["profile_pic"], width=80)
+
     st.markdown("---")
     
     # Show Chat History & New Chat only when in Solo Study mode
@@ -204,14 +220,13 @@ with st.sidebar:
         g_data = g.to_dict()
         g_type = g_data.get("group_type", "Student Group")
         
-        # Role-based visibility check
         can_view = False
         if user_role == "Student Portal" and g_type == "Student Group":
             can_view = True
         elif user_role == "Teacher Portal" and (g_type == "Student Group" or g_type == "Teacher Group"):
             can_view = True
         elif user_role == "Principal Control Panel":
-            can_view = True # Principals can view teacher & student chats
+            can_view = True 
         elif user_role == "Personal Account":
             can_view = True
 
@@ -288,14 +303,14 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "openrouter/free",
+                    "model": "meta-llama/llama-3.2-3b-instruct:free",
                     "messages": chat_context
                 },
                 timeout=20
             )
             ai_reply = resp.json()["choices"][0]["message"]["content"].strip()
-        except Exception:
-            ai_reply = "⚠️ Sync error. Please try again."
+        except Exception as e:
+            ai_reply = f"⚠️ Sync error: {e}"
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
@@ -304,131 +319,4 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 # =====================================================================
 # MODE 2: FRIENDS & STUDY GROUPS WITH @exegesis
 # =====================================================================
-elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
-    st.title("👥 Friends & Study Groups")
-    
-    tab1, tab2, tab3 = st.tabs(["Friend Requests", "Create Group Chat", "Active Group Chat Room"])
-    
-    with tab1:
-        st.subheader("Add Friend (Requires Full Name)")
-        target_fullname = st.text_input("Enter Peer's Exact Full Name")
-        if st.button("Send Friend Request"):
-            if target_fullname.strip() == "":
-                st.error("Please enter a valid full name.")
-            else:
-                db.collection("friend_requests").add({
-                    "from_user": user_name,
-                    "from_fullname": st.session_state["full_name"],
-                    "to_fullname": target_fullname.strip(),
-                    "status": "pending"
-                })
-                st.success("Friend request sent!")
-                
-        st.subheader("Pending Requests")
-        reqs = db.collection("friend_requests").where("to_fullname", "==", st.session_state["full_name"]).where("status", "==", "pending").stream()
-        for r in reqs:
-            r_data = r.to_dict()
-            st.write(f"Request from: **{r_data['from_fullname']}**")
-            if st.button("Accept", key=r.id):
-                db.collection("friend_requests").document(r.id).update({"status": "accepted"})
-                st.success("Friend added!")
-                st.rerun()
-
-    with tab2:
-        st.subheader("Create a New Study Group")
-        new_group_name = st.text_input("Group Name")
-        group_type_choice = st.selectbox("Group Category", ["Student Group", "Teacher Group"])
-        uploaded_group_pic = st.file_uploader("Group Profile Picture", type=["png", "jpg", "jpeg"], key="group_pic_upload")
-        
-        if st.button("Create Group"):
-            if not new_group_name.strip():
-                st.error("Please provide a group name.")
-            else:
-                pic_data = ""
-                if uploaded_group_pic:
-                    pic_data = f"data:image/png;base64,{base64.b64encode(uploaded_group_pic.read()).decode('utf-8')}"
-                
-                group_ref = db.collection("groups").add({
-                    "name": new_group_name.strip(),
-                    "group_type": group_type_choice,
-                    "creator": st.session_state["full_name"],
-                    "profile_pic": pic_data,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                })
-                st.success(f"Group '{new_group_name}' created successfully!")
-                st.rerun()
-
-    with tab3:
-        st.subheader("Study Room Chat (Tag @exegesis for help)")
-        
-        # Select active group
-        all_groups = list(db.collection("groups").stream())
-        group_options = {g.id: g.to_dict()["name"] for g in all_groups}
-        
-        if not group_options:
-            st.info("No groups created yet. Go to 'Create Group Chat' tab to start one!")
-        else:
-            selected_gid = st.selectbox(
-                "Select Group Chat",
-                options=list(group_options.keys()),
-                format_func=lambda x: f"🟣 {group_options[x]}",
-                index=list(group_options.keys()).index(st.session_state["active_group_id"]) if st.session_state["active_group_id"] in group_options else 0
-            )
-            st.session_state["active_group_id"] = selected_gid
-            
-            # Display group profile pic if available
-            g_doc = db.collection("groups").document(selected_gid).get()
-            if g_doc.exists:
-                g_info = g_doc.to_dict()
-                if g_info.get("profile_pic"):
-                    st.image(g_info["profile_pic"], width=60)
-            
-            if check_chat_suspension():
-                st.error("🚫 Your chat access is suspended for 1 day due to foul language violations.")
-                st.stop()
-                
-            room_msgs = db.collection("groups").document(selected_gid).collection("messages").order_by("time").stream()
-            for msg in room_msgs:
-                m = msg.to_dict()
-                st.markdown(f"**{m['sender']}**: {m['text']}")
-                
-            group_input = st.chat_input("Message group...")
-            if group_input:
-                if detect_foul_language(group_input):
-                    sus_until = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
-                    db.collection("suspensions").document(user_name).set({"expires_at": sus_until})
-                    st.error("⚠️ Foul language detected! Your chat is suspended for 1 day.")
-                    st.rerun()
-                    
-                db.collection("groups").document(selected_gid).collection("messages").add({
-                    "sender": st.session_state["full_name"],
-                    "text": group_input,
-                    "time": datetime.now(timezone.utc).isoformat()
-                })
-                
-                if "@exegesis" in group_input.lower():
-                    try:
-                        resp = requests.post(
-                            url="https://openrouter.ai/api/v1/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {FULL_API_KEY}",
-                                "Content-Type": "application/json"
-                            },
-                            json={
-                                "model": "openrouter/free",
-                                "messages": [
-                                    {"role": "system", "content": TUTOR_PROMPT},
-                                    {"role": "user", "content": group_input}
-                                ]
-                            },
-                            timeout=20
-                        )
-                        ai_help = resp.json()["choices"][0]["message"]["content"].strip()
-                        db.collection("groups").document(selected_gid).collection("messages").add({
-                            "sender": "Exegesis AI 🤖",
-                            "text": ai_help,
-                            "time": datetime.now(timezone.utc).isoformat()
-                        })
-                    except Exception:
-                        pass
-                st.rerun()
+elif st.session_state["app_mode"] == "👥 Friends
