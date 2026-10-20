@@ -167,6 +167,35 @@ with st.sidebar:
     st.session_state["app_mode"] = st.radio("Select Mode", ["Solo Study / AI Chat", "👥 Friends & Study Groups"])
     
     st.markdown("---")
+    
+    # Show Chat History & New Chat only when in Solo Study mode
+    if st.session_state["app_mode"] == "Solo Study / AI Chat":
+        if st.button("➕ New Chat / Topic", use_container_width=True):
+            if st.session_state["messages"]:
+                chat_title = st.session_state["messages"][0]["content"][:25] + "..."
+                st.session_state["chat_history"].append({
+                    "title": chat_title,
+                    "messages": st.session_state["messages"],
+                    "time": datetime.now(timezone.utc).isoformat()
+                })
+            st.session_state["messages"] = []
+            save_user_session()
+            st.rerun()
+
+        st.subheader("💬 Chat History")
+        for i, chat in enumerate(st.session_state["chat_history"]):
+            cols = st.columns([4, 1])
+            with cols[0]:
+                if st.button(chat["title"], key=f"history_{i}"):
+                    st.session_state["messages"] = chat["messages"]
+                    st.rerun()
+            with cols[1]:
+                if st.button("❌", key=f"del_chat_{i}"):
+                    st.session_state["chat_history"].pop(i)
+                    save_user_session()
+                    st.rerun()
+        st.markdown("---")
+
     st.subheader("🌤️ Weather Report")
     user_location = st.text_input("Location:", value=st.session_state["user_city"])
     if user_location != st.session_state["user_city"]:
@@ -186,7 +215,7 @@ def detect_harmful_keywords(text):
     return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
 
 def detect_foul_language(text):
-    foul_words = ["badword1", "badword2", "idiot", "stupid"] # Add actual restricted words
+    foul_words = ["badword1", "badword2", "idiot", "stupid"]
     return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in foul_words)
 
 def check_chat_suspension():
@@ -280,7 +309,6 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             st.error("🚫 Your chat access is suspended for 1 day due to foul language violations.")
             st.stop()
             
-        # Display group messages from Firestore
         room_msgs = db.collection("group_room").order_by("time").stream()
         for msg in room_msgs:
             m = msg.to_dict()
@@ -300,21 +328,9 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 "time": datetime.now(timezone.utc).isoformat()
             })
             
-            # Check if @exegesis was mentioned
             if "@exegesis" in group_input.lower():
                 try:
                     resp = requests.post(
                         "https://openrouter.ai/api/v1/chat/completions",
                         headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"},
-                        json={"model": "openrouter/free", "messages": [{"role": "system", "content": TUTOR_PROMPT}, {"role": "user", "content": group_input}]},
-                        timeout=20
-                    )
-                    ai_help = resp.json()["choices"][0]["message"]["content"].strip()
-                    db.collection("group_room").add({
-                        "sender": "Exegesis AI 🤖",
-                        "text": ai_help,
-                        "time": datetime.now(timezone.utc).isoformat()
-                    })
-                except Exception:
-                    pass
-            st.rerun()
+                        json={"model": "openrouter/free", "
