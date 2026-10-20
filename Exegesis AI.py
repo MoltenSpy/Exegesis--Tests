@@ -4,6 +4,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
+import base64
 
 st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
 
@@ -19,7 +20,6 @@ else:
 def init_firebase():
     if not firebase_admin._apps:
         cred_dict = dict(st.secrets["firebase"])
-        # Handles escaped newlines if using single-line string formatting
         cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
@@ -80,6 +80,7 @@ if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
 if "hint_step" not in st.session_state: st.session_state["hint_step"] = 0
 if "attempts" not in st.session_state: st.session_state["attempts"] = 0
 if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
+if "temp_profile_pic" not in st.session_state: st.session_state["temp_profile_pic"] = ""
 
 # --- Onboarding Login & Signup Screen ---
 if not st.session_state["logged_in"]:
@@ -146,16 +147,23 @@ account_label = st.session_state["account_type"]
 with st.sidebar:
     st.title("📂 Workspace Settings")
     
-    if st.session_state["profile_pic"]:
-        st.image(st.session_state["profile_pic"], width=80)
+    current_pic = st.session_state["profile_pic"]
+    if current_pic:
+        st.image(current_pic, width=80)
     
     uploaded_image = st.file_uploader("Upload Profile Picture", type=["png", "jpg", "jpeg"])
     if uploaded_image:
-        import base64
         encoded_img = base64.b64encode(uploaded_image.read()).decode("utf-8")
-        st.session_state["profile_pic"] = f"data:image/png;base64,{encoded_img}"
-        save_user_session()
-        st.rerun()
+        st.session_state["temp_profile_pic"] = f"data:image/png;base64,{encoded_img}"
+        st.image(st.session_state["temp_profile_pic"], width=80, caption="Preview")
+
+    if st.session_state["temp_profile_pic"]:
+        if st.button("Confirm Profile Picture", use_container_width=True):
+            st.session_state["profile_pic"] = st.session_state["temp_profile_pic"]
+            st.session_state["temp_profile_pic"] = ""
+            save_user_session()
+            st.success("Profile picture updated!")
+            st.rerun()
 
     st.write(f"👤 **Active User:** {user_name}")
     st.write(f"🏫 **Access:** {account_label}")
@@ -224,7 +232,11 @@ def check_sadness(text):
 st.title("🎓 Exegesis Learning Space")
 
 for msg in st.session_state["messages"]:
-    avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
+    if msg["role"] == "assistant":
+        avatar_img = "🤖"
+    else:
+        avatar_img = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
+        
     with st.chat_message(msg["role"], avatar=avatar_img):
         st.markdown(msg["content"])
 
@@ -232,7 +244,9 @@ user_input = st.chat_input("Ask a question or type your answer...")
 
 if user_input:
     st.session_state["messages"].append({"role": "user", "content": user_input})
-    with st.chat_message("user", avatar="👤"):
+    
+    user_avatar = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
+    with st.chat_message("user", avatar=user_avatar):
         st.markdown(user_input)
 
     if detect_harmful_keywords(user_input):
