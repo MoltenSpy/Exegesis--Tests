@@ -186,4 +186,97 @@ with st.sidebar:
     st.markdown("---")
     
     # Show Chat History & New Chat only when in Solo Study mode
-    if st.session_state["app_mode"] == "Solo Study
+    if st.session_state["app_mode"] == "Solo Study / AI Chat":
+        if st.button("➕ New Chat / Topic", use_container_width=True):
+            if st.session_state["messages"]:
+                chat_title = st.session_state["messages"][0]["content"][:25] + "..."
+                st.session_state["chat_history"].append({
+                    "title": chat_title,
+                    "messages": st.session_state["messages"],
+                    "time": datetime.now(timezone.utc).isoformat()
+                })
+            st.session_state["messages"] = []
+            save_user_session()
+            st.rerun()
+
+        st.subheader("💬 Chat History")
+        for i, chat in enumerate(st.session_state["chat_history"]):
+            cols = st.columns([4, 1])
+            with cols[0]:
+                if st.button(chat["title"], key=f"history_{i}"):
+                    st.session_state["messages"] = chat["messages"]
+                    st.rerun()
+            with cols[1]:
+                if st.button("❌", key=f"del_chat_{i}"):
+                    st.session_state["chat_history"].pop(i)
+                    save_user_session()
+                    st.rerun()
+        st.markdown("---")
+
+    # Group Chats Sidebar History with Purple Band Indicator
+    st.subheader("🟣 Group Chat History")
+    groups_query = db.collection("groups").stream()
+    for g in groups_query:
+        g_data = g.to_dict()
+        g_type = g_data.get("group_type", "Student Group")
+        
+        can_view = False
+        if user_role == "Student Portal" and g_type == "Student Group":
+            can_view = True
+        elif user_role == "Teacher Portal" and (g_type == "Student Group" or g_type == "Teacher Group"):
+            can_view = True
+        elif user_role == "Principal Control Panel":
+            can_view = True 
+        elif user_role == "Personal Account":
+            can_view = True
+
+        if can_view:
+            if st.button(f"🟣 {g_data['name']}", key=f"sidebar_group_{g.id}", use_container_width=True):
+                st.session_state["active_group_id"] = g.id
+                st.session_state["app_mode"] = "👥 Friends & Study Groups"
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("🌤️ Weather Report")
+    user_location = st.text_input("Location:", value=st.session_state["user_city"])
+    if user_location != st.session_state["user_city"]:
+        st.session_state["user_city"] = user_location
+        save_user_session()
+    st.markdown(get_weather(st.session_state["user_city"]))
+
+    st.markdown("---")
+    if st.button("Log out", use_container_width=True):
+        save_user_session()
+        st.session_state["logged_in"] = False
+        st.rerun()
+
+# --- Security & Foul Language Checkers ---
+def detect_harmful_keywords(text):
+    harmful_keywords = ["kill", "suicide", "harm", "hurt", "violence", "weapon", "gun", "die", "unalive"]
+    return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
+
+def detect_foul_language(text):
+    foul_words = ["badword1", "badword2", "idiot", "stupid"]
+    return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in foul_words)
+
+def check_chat_suspension():
+    sus_ref = db.collection("suspensions").document(user_name)
+    sus_doc = sus_ref.get()
+    if sus_doc.exists:
+        sus_data = sus_doc.to_dict()
+        expiry_time = datetime.fromisoformat(sus_data["expires_at"])
+        if datetime.now(timezone.utc) < expiry_time:
+            return True
+        else:
+            sus_ref.delete()
+    return False
+
+# =====================================================================
+# MODE 1: SOLO STUDY / AI CHAT
+# =====================================================================
+if st.session_state["app_mode"] == "Solo Study / AI Chat":
+    st.title("🎓 Exegesis AI - Personal Tutor")
+    
+    for msg in st.session_state["messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown
