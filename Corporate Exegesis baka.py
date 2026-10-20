@@ -3,8 +3,9 @@ import requests
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
+from datetime import datetime, timezone
 
-st.set_page_config(page_title="Exegesis AI ", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
 
 # --- Secure API Secrets Fetching ---
 if "OPENROUTER_API_KEY" in st.secrets:
@@ -17,9 +18,7 @@ else:
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
-        # Load credentials directly from Streamlit Secrets
         cred_dict = dict(st.secrets["firebase"])
-        # Fix line breaks in private key if loaded as string
         cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
         cred = credentials.Certificate(cred_dict)
         firebase_admin.initialize_app(cred)
@@ -42,10 +41,13 @@ def save_user_session():
         doc_ref = db.collection("users").document(st.session_state["user_name"])
         doc_ref.set({
             "messages": st.session_state.get("messages", []),
+            "chat_history": st.session_state.get("chat_history", []),
             "hint_step": st.session_state.get("hint_step", 0),
             "attempts": st.session_state.get("attempts", 0),
             "account_type": st.session_state.get("account_type", ""),
-            "gender": st.session_state.get("user_gender", "")
+            "gender": st.session_state.get("user_gender", ""),
+            "profile_pic": st.session_state.get("profile_pic", ""),
+            "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
 # --- System Prompt Engineering Blocks ---
@@ -53,10 +55,8 @@ TUTOR_PROMPT = (
     "You are Exegesis AI, a friendly tutor for school students. "
     "Follow a strict scaffolding process for questions or problems:\n"
     "1. Never give the final answer right away.\n"
-    "2. Provide exactly up to 3 progressive hints over the conversation to guide the student.\n"
-    "3. Do NOT include meta-labels or describe the hint level (never write words like 'Hint 1', 'vague hint', 'subtle hint', or 'obvious hint'). Speak directly to the student.\n"
-    "4. The first hint must be broad and conceptual. The second hint points to the specific method. The third hint guides the next step without revealing the final answer.\n"
-    "5. Check student responses: if correct, praise and explain. If incorrect, progress to the next hint. After 3 hints are given, provide the full solution step-by-step."
+    "2. Provide exactly up to 3 progressive hints over the conversation.\n"
+    "3. Do NOT include meta-labels or describe the hint level.\n"
 )
 FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend to a student who feels sad."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
@@ -74,39 +74,15 @@ if "user_name" not in st.session_state: st.session_state["user_name"] = ""
 if "account_type" not in st.session_state: st.session_state["account_type"] = ""
 if "user_gender" not in st.session_state: st.session_state["user_gender"] = "Not Disclosed"
 if "messages" not in st.session_state: st.session_state["messages"] = []
+if "chat_history" not in st.session_state: st.session_state["chat_history"] = []
+if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
 if "hint_step" not in st.session_state: st.session_state["hint_step"] = 0
 if "attempts" not in st.session_state: st.session_state["attempts"] = 0
 if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
 
-# --- Custom CSS for Professional Fly-In Animation ---
-def render_animated_greeting(text):
-    animated_html = f"""
-    <style>
-    @keyframes flyIn {{
-        0% {{
-            opacity: 0;
-            transform: translateY(-15px);
-        }}
-        100% {{
-            opacity: 1;
-            transform: translateY(0);
-        }}
-    }}
-    .professional-greeting {{
-        animation: flyIn 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards;
-        font-size: 1.1rem;
-        color: #4A5568;
-        margin-bottom: 1rem;
-    }}
-    </style>
-    <div class="professional-greeting">{text}</div>
-    """
-    st.markdown(animated_html, unsafe_allow_html=True)
-
 # --- Onboarding Login & Signup Screen ---
 if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
-    
     auth_mode = st.radio("Choose Action", ["Log In", "Create Account"], horizontal=True)
     
     col1, col2 = st.columns(2)
@@ -130,12 +106,14 @@ if not st.session_state["logged_in"]:
                         doc_ref.set({
                             "password": entered_pass,
                             "messages": [],
+                            "chat_history": [],
                             "hint_step": 0,
                             "attempts": 0,
                             "account_type": acc_choice,
-                            "gender": gender_choice
+                            "gender": gender_choice,
+                            "profile_pic": ""
                         })
-                        st.success("Account created in cloud successfully! Switch to 'Log In' to enter.")
+                        st.success("Account created successfully! Switch to 'Log In'.")
         else:
             if st.button("Log In to Workspace", use_container_width=True):
                 clean_name = entered_name.strip()
@@ -148,6 +126,8 @@ if not st.session_state["logged_in"]:
                         st.session_state["account_type"] = user_data.get("account_type", "Personal Account")
                         st.session_state["user_gender"] = user_data.get("gender", "Not Disclosed")
                         st.session_state["messages"] = user_data.get("messages", [])
+                        st.session_state["chat_history"] = user_data.get("chat_history", [])
+                        st.session_state["profile_pic"] = user_data.get("profile_pic", "")
                         st.session_state["hint_step"] = user_data.get("hint_step", 0)
                         st.session_state["attempts"] = user_data.get("attempts", 0)
                         st.session_state["logged_in"] = True
@@ -164,6 +144,19 @@ account_label = st.session_state["account_type"]
 # --- Navigation Sidebar Interface Engine ---
 with st.sidebar:
     st.title("📂 Workspace Settings")
+    
+    # Profile Picture Display & Upload
+    if st.session_state["profile_pic"]:
+        st.image(st.session_state["profile_pic"], width=80)
+    
+    uploaded_image = st.file_uploader("Upload Profile Picture", type=["png", "jpg", "jpeg"])
+    if uploaded_image:
+        import base64
+        encoded_img = base64.b64encode(uploaded_image.read()).decode("utf-8")
+        st.session_state["profile_pic"] = f"data:image/png;base64,{encoded_img}"
+        save_user_session()
+        st.rerun()
+
     st.write(f"👤 **Active User:** {user_name}")
     st.write(f"🏫 **Access:** {account_label}")
     
@@ -172,64 +165,35 @@ with st.sidebar:
         st.session_state["logged_in"] = False
         st.rerun()
 
-    # Manage Account (Blocked for Students)
-    if account_label != "Student Portal":
-        st.markdown("---")
-        with st.expander("⚙️ Manage Account"):
-            new_user_name = st.text_input("New Username", value=user_name)
-            new_password = st.text_input("New Password", type="password", placeholder="Enter new password")
-            if st.button("Update Account Details"):
-                if new_user_name.strip() != "" and new_password.strip() != "":
-                    # Retrieve current user details
-                    doc_ref, doc = get_user_doc(user_name)
-                    if doc.exists:
-                        data = doc.to_dict()
-                        data["password"] = new_password
-                        
-                        if new_user_name != user_name:
-                            # Save data to new username document and remove old document
-                            db.collection("users").document(new_user_name).set(data)
-                            doc_ref.delete()
-                            st.session_state["user_name"] = new_user_name
-                        else:
-                            doc_ref.update({"password": new_password})
-                            
-                        st.success("Account updated successfully!")
-                        st.rerun()
-
-    if account_label != "Personal Account":
-        st.markdown("---")
-        st.subheader("📋 Assigned School Tasks")
-        if account_label == "Student Portal":
-            if st.session_state["assigned_school_tasks"]:
-                for task in st.session_state["assigned_school_tasks"]:
-                    st.checkbox(task, key=f"check_{task[:15]}")
-            else:
-                st.caption("No homework assignments active right now.")
-        elif account_label in ["Teacher Portal", "Principal Control Panel"]:
-            for i, task in enumerate(st.session_state["assigned_school_tasks"]):
-                col_t, col_b = st.columns([4, 1])
-                with col_t:
-                    st.caption(f"{i+1}. {task}")
-                with col_b:
-                    if st.button("🗑️", key=f"del_{i}"):
-                        st.session_state["assigned_school_tasks"].pop(i)
-                        st.rerun()
-            st.markdown("---")
-            new_task_input = st.text_input("Push New Assignment Topic", key="new_task_field", placeholder="e.g. Read Physics Chapter 2")
-            if st.button("➕ Assign Task to Class", use_container_width=True):
-                if new_task_input.strip() != "":
-                    st.session_state["assigned_school_tasks"].append(new_task_input.strip())
-                    st.rerun()
-
     st.markdown("---")
-    if st.button("New Chat / Topic", use_container_width=True):
+    if st.button("➕ New Chat / Topic", use_container_width=True):
+        if st.session_state["messages"]:
+            # Save current chat to history
+            chat_title = st.session_state["messages"][0]["content"][:25] + "..."
+            st.session_state["chat_history"].append({
+                "title": chat_title,
+                "messages": st.session_state["messages"],
+                "time": datetime.now(timezone.utc).isoformat()
+            })
         st.session_state["messages"] = []
         st.session_state["hint_step"] = 0
         st.session_state["attempts"] = 0
         st.session_state["is_sad_mode"] = False
         save_user_session()
         st.rerun()
+
+    st.subheader("💬 Chat History")
+    for i, chat in enumerate(st.session_state["chat_history"]):
+        cols = st.columns([4, 1])
+        with cols[0]:
+            if st.button(chat["title"], key=f"history_{i}"):
+                st.session_state["messages"] = chat["messages"]
+                st.rerun()
+        with cols[1]:
+            if st.button("❌", key=f"del_chat_{i}"):
+                st.session_state["chat_history"].pop(i)
+                save_user_session()
+                st.rerun()
 
 # --- Security & Keyword Core Engines ---
 def detect_harmful_keywords(text):
@@ -258,85 +222,45 @@ def check_sadness(text):
 # =====================================================================
 # INTERFACE PANELS
 # =====================================================================
-if account_label == "Principal Control Panel":
-    st.title("🛡️ Institutional Admin Console")
-    st.write("Manage systemic artificial intelligence guardrails.")
-    if st.session_state["school_ai_enabled"]:
-        st.success("🟢 Exegesis AI Scaffolding Engines are currently **ACTIVE**.")
-        if st.button("🔴 Turn Off School AI Access", use_container_width=True):
-            st.session_state["school_ai_enabled"] = False
-            st.rerun()
-    else:
-        st.error("🔴 Exegesis AI Scaffolding Engines are currently **DISABLED**.")
-        if st.button("🟢 Turn On School AI Access", use_container_width=True):
-            st.session_state["school_ai_enabled"] = True
-            st.rerun()
+st.title("🎓 Exegesis Learning Space")
 
-elif account_label == "Teacher Portal":
-    st.title("📋 Teacher Monitoring Dashboard")
-    st.write("Track student activity and accounts.")
-    users_ref = db.collection("users").stream()
-    user_list = [user.id for user in users_ref]
-    st.write(f"Registered Users in Firebase: {user_list}")
+# Render persistent chat history
+for msg in st.session_state["messages"]:
+    avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
+    with st.chat_message(msg["role"], avatar=avatar_img):
+        st.markdown(msg["content"])
 
-else:
-    if not st.session_state["school_ai_enabled"] and account_label == "Student Portal":
-        st.error("🔒 Access Suspended by administration.")
-        st.stop()
+user_input = st.chat_input("Ask a question or type your answer...")
 
-    st.title("🎓 Exegesis Learning Space")
-    
-    if st.session_state["is_sad_mode"]: 
-        render_animated_greeting(f"Hey {user_name}, I am here for you as a peer. What's on your mind?")
-    else: 
-        render_animated_greeting("What is on your mind today?")
+if user_input:
+    st.session_state["messages"].append({"role": "user", "content": user_input})
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(user_input)
 
-    # Render persistent chat history
-    for msg in st.session_state["messages"]:
-        avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
-        with st.chat_message(msg["role"], avatar=avatar_img):
-            st.markdown(msg["content"])
-
-    user_input = st.chat_input("Ask a question or type your answer / where you got stuck...")
-
-    if user_input:
-        st.session_state["messages"].append({"role": "user", "content": user_input})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(user_input)
-
-        if detect_harmful_keywords(user_input):
-            with st.spinner("Exegesis AI is thinking..."):
-                safety_reply = generate_dynamic_safety_response(user_input)
-            st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
-            save_user_session()
-            st.rerun()
-
-        if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
-            st.session_state["is_sad_mode"] = True
-
-        if st.session_state["is_sad_mode"]:
-            chat_context = [{"role": "system", "content": FRIEND_CHAT_PROMPT}] + st.session_state["messages"]
-            with st.spinner("Exegesis AI is thinking..."):
-                try:
-                    response = requests.post(url="https://openrouter.ai/api/v1/chat/completions", headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, json={"model": "openrouter/free", "messages": chat_context}, timeout=20)
-                    ai_reply = response.json()["choices"][0]["message"]["content"].strip()
-                except Exception:
-                    ai_reply = "I'm right here with you."
-            st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
-        else:
-            chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
-            with st.spinner("Exegesis AI is thinking..."):
-                try:
-                    response = requests.post(
-                        url="https://openrouter.ai/api/v1/chat/completions", 
-                        headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, 
-                        json={"model": "openrouter/free", "messages": chat_context}, 
-                        timeout=20
-                    )
-                    ai_reply = response.json()["choices"][0]["message"]["content"].strip()
-                except Exception:
-                    ai_reply = "⚠️ Sync error. Please resubmit your response."
-            st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
-
+    if detect_harmful_keywords(user_input):
+        with st.spinner("Exegesis AI is thinking..."):
+            safety_reply = generate_dynamic_safety_response(user_input)
+        st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
         save_user_session()
         st.rerun()
+
+    if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
+        st.session_state["is_sad_mode"] = True
+
+    chat_context = [{"role": "system", "content": FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT}] + st.session_state["messages"]
+    
+    with st.spinner("Exegesis AI is thinking..."):
+        try:
+            response = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions", 
+                headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, 
+                json={"model": "openrouter/free", "messages": chat_context}, 
+                timeout=20
+            )
+            ai_reply = response.json()["choices"][0]["message"]["content"].strip()
+        except Exception:
+            ai_reply = "⚠️ Sync error. Please resubmit your response."
+            
+    st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
+    save_user_session()
+    st.rerun()
