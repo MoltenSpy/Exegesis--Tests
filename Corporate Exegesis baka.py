@@ -4,7 +4,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-st.set_page_config(page_title="Exegesis AI Enterprise", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Exegesis AI ", page_icon="🎓", layout="wide")
 
 # --- Secure API Secrets Fetching ---
 if "OPENROUTER_API_KEY" in st.secrets:
