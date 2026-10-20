@@ -91,7 +91,7 @@ if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
     st.write("Please enter your name to start.")
 
-    col1, col2 = st.columns([1,2])
+    col1, col2 = st.columns([1, 2])
     with col1:
         entered_name = st.text_input("Your Name", placeholder="e.g., Alex")
 
@@ -337,9 +337,8 @@ if st.session_state["current_topic"] == "Safety Intercept Notice" or st.session_
     st.markdown("---")
     if st.session_state["is_sad_mode"]:
         st.info("❤️ **Friendship Support Active:** Chatting freely without structural study constraints.")
-    else:
-        st.warning("⚠️ **Safety Notice Active:** A dynamic safe redirection context has been initiated.")
     
+    # Notice banner hidden completely as requested
     for msg in st.session_state["messages"]:
         avatar_img = st.session_state["user_avatar"] if msg["role"] == "user" else "🤖"
         with st.chat_message(msg["role"], avatar=avatar_img):
