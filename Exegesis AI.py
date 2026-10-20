@@ -5,12 +5,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone
 import base64
-import extra_streamlit_components as stx
 
 st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
-
-# --- Initialize Cookie Manager directly without @st.cache_resource ---
-cookie_manager = stx.CookieManager(key="exegesis_cookie_mgr")
 
 # --- Secure API Secrets Fetching ---
 if "OPENROUTER_API_KEY" in st.secrets:
@@ -56,24 +52,35 @@ def save_user_session():
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
-# --- Helper Function for Live Weather (Celsius & Fahrenheit) ---
+# --- Weather Function (Celsius & Fahrenheit + High & Low) ---
 def get_weather(city_name):
     if not city_name:
         return "Please enter a location."
     try:
-        url_c = f"https://wttr.in/{city_name}?format=%C+%t"
-        resp_c = requests.get(url_c, timeout=5)
+        url = f"https://wttr.in/{city_name}?format=j1"
+        response = requests.get(url, timeout=5)
         
-        url_f = f"https://wttr.in/{city_name}?format=%f"
-        resp_f = requests.get(url_f, timeout=5)
-        
-        if resp_c.status_code == 200 and resp_f.status_code == 200:
-            cond_c = resp_c.text.strip()
-            temp_f = resp_f.text.strip()
-            return f"{cond_c} / {temp_f}"
+        if response.status_code == 200:
+            data = response.json()
+            condition = data["current_condition"][0]["weatherDesc"][0]["value"]
+            temp_c = data["current_condition"][0]["temp_C"]
+            temp_f = data["current_condition"][0]["temp_F"]
+            
+            today = data["weather"][0]
+            min_c = today["mintempC"]
+            max_c = today["maxtempC"]
+            min_f = today["mintempF"]
+            max_f = today["maxtempF"]
+            
+            return (
+                f"**Condition:** {condition}\n\n"
+                f"🌡️ **Current:** {temp_c}°C / {temp_f}°F\n\n"
+                f"📉 **Lowest:** {min_c}°C / {min_f}°F\n\n"
+                f"📈 **Highest:** {max_c}°C / {max_f}°F"
+            )
     except Exception:
         pass
-    return "Unable to fetch weather"
+    return "Unable to fetch weather data."
 
 # --- System Prompt Engineering Blocks ---
 TUTOR_PROMPT = (
@@ -87,7 +94,7 @@ TUTOR_PROMPT = (
 FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
 
-# --- Initialize App Session States ---
+# --- Initialize Session States ---
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 if "user_name" not in st.session_state: st.session_state["user_name"] = ""
 if "account_type" not in st.session_state: st.session_state["account_type"] = ""
@@ -100,23 +107,6 @@ if "attempts" not in st.session_state: st.session_state["attempts"] = 0
 if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
 if "temp_profile_pic" not in st.session_state: st.session_state["temp_profile_pic"] = ""
 if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
-
-# --- Cookie-Based Persistent Login Check ---
-saved_username = cookie_manager.get(cookie="exegesis_user")
-if saved_username and not st.session_state["logged_in"]:
-    doc_ref, doc = get_user_doc(saved_username)
-    if doc.exists:
-        user_data = doc.to_dict()
-        st.session_state["user_name"] = saved_username
-        st.session_state["account_type"] = user_data.get("account_type", "Personal Account")
-        st.session_state["user_gender"] = user_data.get("gender", "Not Disclosed")
-        st.session_state["messages"] = user_data.get("messages", [])
-        st.session_state["chat_history"] = user_data.get("chat_history", [])
-        st.session_state["profile_pic"] = user_data.get("profile_pic", "")
-        st.session_state["user_city"] = user_data.get("user_city", "London")
-        st.session_state["hint_step"] = user_data.get("hint_step", 0)
-        st.session_state["attempts"] = user_data.get("attempts", 0)
-        st.session_state["logged_in"] = True
 
 # --- Onboarding Login & Signup Screen ---
 if not st.session_state["logged_in"]:
@@ -171,8 +161,6 @@ if not st.session_state["logged_in"]:
                         st.session_state["hint_step"] = user_data.get("hint_step", 0)
                         st.session_state["attempts"] = user_data.get("attempts", 0)
                         st.session_state["logged_in"] = True
-                        
-                        cookie_manager.set("exegesis_user", clean_name, key="set_login_cookie")
                         st.rerun()
                     else:
                         st.error("Invalid username or password.")
@@ -207,7 +195,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # Weather & Time Display below profile picture
     st.subheader("🌤️ Weather & Time Report")
     
     current_dt = datetime.now()
@@ -220,7 +207,7 @@ with st.sidebar:
         save_user_session()
         
     weather_info = get_weather(st.session_state["user_city"])
-    st.info(f"🌡️ **Weather in {st.session_state['user_city']}:** {weather_info}")
+    st.markdown(weather_info)
 
     st.markdown("---")
     st.write(f"👤 **Active User:** {user_name}")
@@ -229,7 +216,6 @@ with st.sidebar:
     if st.button("Log out System Session", use_container_width=True):
         save_user_session()
         st.session_state["logged_in"] = False
-        cookie_manager.delete("exegesis_user", key="delete_login_cookie")
         st.rerun()
 
     st.markdown("---")
@@ -324,7 +310,7 @@ if user_input:
     time_str = current_dt.strftime("%I:%M %p")
     location_weather = get_weather(st.session_state["user_city"])
     
-    realtime_info = f"\n\n[Context: Date: {date_str} | Time: {time_str} | Location: {st.session_state['user_city']} | Weather: {location_weather}]"
+    realtime_info = f"\n\n[Context: Date: {date_str} | Time: {time_str} | Location: {st.session_state['user_city']} | Weather Summary: {location_weather}]"
 
     base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
     full_system_prompt = base_prompt + realtime_info
