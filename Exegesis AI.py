@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import base64
 
 st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
@@ -43,8 +43,7 @@ def save_user_session():
         doc_ref.set({
             "messages": st.session_state.get("messages", []),
             "chat_history": st.session_state.get("chat_history", []),
-            "hint_step": st.session_state.get("hint_step", 0),
-            "attempts": st.session_state.get("attempts", 0),
+            "friends": st.session_state.get("friends", []),
             "account_type": st.session_state.get("account_type", ""),
             "gender": st.session_state.get("user_gender", ""),
             "profile_pic": st.session_state.get("profile_pic", ""),
@@ -52,7 +51,7 @@ def save_user_session():
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
-# --- Weather Function (Only Temperature & Conditions) ---
+# --- Weather Function ---
 def get_weather(city_name):
     if not city_name:
         return "Please enter a location."
@@ -62,39 +61,29 @@ def get_weather(city_name):
         
         if resp_j1.status_code == 200:
             data = resp_j1.json()
-            
-            # Current Condition & Temps
             condition = data["current_condition"][0]["weatherDesc"][0]["value"]
             temp_c = data["current_condition"][0]["temp_C"]
             temp_f = data["current_condition"][0]["temp_F"]
-            
-            # Today's High & Low
             today = data["weather"][0]
-            min_c = today["mintempC"]
-            max_c = today["maxtempC"]
-            min_f = today["mintempF"]
-            max_f = today["maxtempF"]
             
-            weather_text = (
+            return (
                 f"**Condition:** {condition}\n\n"
                 f"🌡️ **Current:** {temp_c}°C / {temp_f}°F\n\n"
-                f"📉 **Lowest:** {min_c}°C / {min_f}°F\n\n"
-                f"📈 **Highest:** {max_c}°C / {max_f}°F"
+                f"📉 **Lowest:** {today['mintempC']}°C / {today['mintempF']}°F\n\n"
+                f"📈 **Highest:** {today['maxtempC']}°C / {today['maxtempF']}°F"
             )
-            return weather_text
     except Exception:
         pass
     return "Unable to fetch weather data."
 
-# --- System Prompt Engineering Blocks ---
+# --- System Prompt Blocks ---
 TUTOR_PROMPT = (
     "You are Exegesis AI, a friendly tutor for school students.\n"
     "Follow a strict scaffolding process for questions or problems:\n"
     "1. Never give the final answer right away.\n"
     "2. Provide exactly up to 3 progressive hints over the conversation.\n"
     "3. Do NOT include meta-labels or describe the hint level.\n"
-    "4. TIME INSTRUCTIONS: If the user asks for the current time, tell them you do not know their location and ask which country or city they are in. "
-    "If the user provides a country or city, calculate and tell them the current local time for that location."
+    "4. If tagged as @exegesis in group chats, solve the students' doubts step-by-step."
 )
 FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
@@ -102,49 +91,47 @@ DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a stude
 # --- Initialize Session States ---
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 if "user_name" not in st.session_state: st.session_state["user_name"] = ""
+if "full_name" not in st.session_state: st.session_state["full_name"] = ""
 if "account_type" not in st.session_state: st.session_state["account_type"] = ""
-if "user_gender" not in st.session_state: st.session_state["user_gender"] = "Not Disclosed"
 if "messages" not in st.session_state: st.session_state["messages"] = []
 if "chat_history" not in st.session_state: st.session_state["chat_history"] = []
+if "friends" not in st.session_state: st.session_state["friends"] = []
+if "group_messages" not in st.session_state: st.session_state["group_messages"] = []
 if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
-if "hint_step" not in st.session_state: st.session_state["hint_step"] = 0
-if "attempts" not in st.session_state: st.session_state["attempts"] = 0
-if "is_sad_mode" not in st.session_state: st.session_state["is_sad_mode"] = False
-if "temp_profile_pic" not in st.session_state: st.session_state["temp_profile_pic"] = ""
 if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
+if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
 
-# --- Onboarding Login & Signup Screen ---
+# --- Onboarding Login & Signup ---
 if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
     auth_mode = st.radio("Choose Action", ["Log In", "Create Account"], horizontal=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        entered_name = st.text_input("Username / Email", placeholder="Enter your username")
+        entered_name = st.text_input("Username", placeholder="Enter your username")
         entered_pass = st.text_input("Password", type="password", placeholder="Enter your password")
         
         if auth_mode == "Create Account":
-            acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "Principal Control Panel", "Personal Account"])
-            gender_choice = st.radio("Select Gender", ["Male", "Female", "Other"])
+            entered_fullname = st.text_input("Full Name", placeholder="Enter your exact Full Name")
+            acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "Personal Account"])
             
             if st.button("Register Account", use_container_width=True):
                 clean_name = entered_name.strip()
-                if clean_name == "" or entered_pass == "":
-                    st.error("Name and password cannot be empty.")
+                clean_fullname = entered_fullname.strip()
+                if not clean_name or not entered_pass or not clean_fullname:
+                    st.error("All fields including full name are required.")
                 else:
                     doc_ref, doc = get_user_doc(clean_name)
                     if doc.exists:
-                        st.error("Username already exists. Please log in.")
+                        st.error("Username already exists.")
                     else:
                         doc_ref.set({
                             "password": entered_pass,
+                            "full_name": clean_fullname,
                             "messages": [],
                             "chat_history": [],
-                            "hint_step": 0,
-                            "attempts": 0,
+                            "friends": [],
                             "account_type": acc_choice,
-                            "gender": gender_choice,
-                            "profile_pic": "",
                             "user_city": "London"
                         })
                         st.success("Account created successfully! Switch to 'Log In'.")
@@ -157,14 +144,12 @@ if not st.session_state["logged_in"]:
                     user_data = doc.to_dict()
                     if user_data.get("password") == entered_pass:
                         st.session_state["user_name"] = clean_name
+                        st.session_state["full_name"] = user_data.get("full_name", clean_name)
                         st.session_state["account_type"] = user_data.get("account_type", "Personal Account")
-                        st.session_state["user_gender"] = user_data.get("gender", "Not Disclosed")
                         st.session_state["messages"] = user_data.get("messages", [])
                         st.session_state["chat_history"] = user_data.get("chat_history", [])
-                        st.session_state["profile_pic"] = user_data.get("profile_pic", "")
+                        st.session_state["friends"] = user_data.get("friends", [])
                         st.session_state["user_city"] = user_data.get("user_city", "London")
-                        st.session_state["hint_step"] = user_data.get("hint_step", 0)
-                        st.session_state["attempts"] = user_data.get("attempts", 0)
                         st.session_state["logged_in"] = True
                         st.rerun()
                     else:
@@ -174,165 +159,162 @@ if not st.session_state["logged_in"]:
     st.stop()
 
 user_name = st.session_state["user_name"]
-account_label = st.session_state["account_type"]
 
-# --- Navigation Sidebar Interface Engine ---
+# --- Sidebar Navigation ---
 with st.sidebar:
-    st.title("📂 Workspace Settings")
+    st.title("📂 Workspace")
     
-    current_pic = st.session_state["profile_pic"]
-    if current_pic:
-        st.image(current_pic, width=80)
+    st.session_state["app_mode"] = st.radio("Select Mode", ["Solo Study / AI Chat", "👥 Friends & Study Groups"])
     
-    uploaded_image = st.file_uploader("Upload Profile Picture", type=["png", "jpg", "jpeg"])
-    if uploaded_image:
-        encoded_img = base64.b64encode(uploaded_image.read()).decode("utf-8")
-        st.session_state["temp_profile_pic"] = f"data:image/png;base64,{encoded_img}"
-        st.image(st.session_state["temp_profile_pic"], width=80, caption="Preview")
-
-    if st.session_state["temp_profile_pic"]:
-        if st.button("Confirm Profile Picture", use_container_width=True):
-            st.session_state["profile_pic"] = st.session_state["temp_profile_pic"]
-            st.session_state["temp_profile_pic"] = ""
-            save_user_session()
-            st.success("Profile picture updated!")
-            st.rerun()
-
     st.markdown("---")
-    
     st.subheader("🌤️ Weather Report")
-    
-    user_location = st.text_input("Enter Location for Weather:", value=st.session_state["user_city"])
+    user_location = st.text_input("Location:", value=st.session_state["user_city"])
     if user_location != st.session_state["user_city"]:
         st.session_state["user_city"] = user_location
         save_user_session()
-        
-    weather_info = get_weather(st.session_state["user_city"])
-    st.markdown(weather_info)
+    st.markdown(get_weather(st.session_state["user_city"]))
 
     st.markdown("---")
-    st.write(f"👤 **Active User:** {user_name}")
-    st.write(f"🏫 **Access:** {account_label}")
-    
-    if st.button("Log out System Session", use_container_width=True):
+    if st.button("Log out", use_container_width=True):
         save_user_session()
         st.session_state["logged_in"] = False
         st.rerun()
 
-    st.markdown("---")
-    if st.button("➕ New Chat / Topic", use_container_width=True):
-        if st.session_state["messages"]:
-            chat_title = st.session_state["messages"][0]["content"][:25] + "..."
-            st.session_state["chat_history"].append({
-                "title": chat_title,
-                "messages": st.session_state["messages"],
-                "time": datetime.now(timezone.utc).isoformat()
-            })
-        st.session_state["messages"] = []
-        st.session_state["hint_step"] = 0
-        st.session_state["attempts"] = 0
-        st.session_state["is_sad_mode"] = False
-        save_user_session()
-        st.rerun()
-
-    st.subheader("💬 Chat History")
-    for i, chat in enumerate(st.session_state["chat_history"]):
-        cols = st.columns([4, 1])
-        with cols[0]:
-            if st.button(chat["title"], key=f"history_{i}"):
-                st.session_state["messages"] = chat["messages"]
-                st.rerun()
-        with cols[1]:
-            if st.button("❌", key=f"del_chat_{i}"):
-                st.session_state["chat_history"].pop(i)
-                save_user_session()
-                st.rerun()
-
-# --- Security & Keyword Core Engines ---
+# --- Security & Foul Language Checkers ---
 def detect_harmful_keywords(text):
     harmful_keywords = ["kill", "suicide", "harm", "hurt", "violence", "weapon", "gun", "die", "unalive"]
-    cleaned_text = text.lower()
-    for word in harmful_keywords:
-        if re.search(r'\b' + re.escape(word) + r'\b', cleaned_text): return True
+    return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
+
+def detect_foul_language(text):
+    foul_words = ["badword1", "badword2", "idiot", "stupid"] # Add actual restricted words
+    return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in foul_words)
+
+def check_chat_suspension():
+    sus_ref = db.collection("suspensions").document(user_name)
+    sus_doc = sus_ref.get()
+    if sus_doc.exists:
+        sus_data = sus_doc.to_dict()
+        expiry_time = datetime.fromisoformat(sus_data["expires_at"])
+        if datetime.now(timezone.utc) < expiry_time:
+            return True
+        else:
+            sus_ref.delete()
     return False
 
-def generate_dynamic_safety_response(violation_text):
-    try:
-        response = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "openrouter/free", "messages": [{"role": "system", "content": DYNAMIC_SAFETY_PROMPT}, {"role": "user", "content": violation_text}]},
-            timeout=15,
-        )
-        return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
-        return "Please connect with a counselor, family member, or teacher right away to keep you safe."
-
-def check_sadness(text):
-    sad_keywords = ["sad", "lonely", "down", "upset", "cry", "crying", "depressed"]
-    return any(word in text.lower() for word in sad_keywords)
-
 # =====================================================================
-# INTERFACE PANELS
+# MODE 1: SOLO STUDY / AI CHAT
 # =====================================================================
-st.title("🎓 Exegesis AI")
-st.subheader("Your guide for learning and a comforting pal when you need it.")
-
-for msg in st.session_state["messages"]:
-    if msg["role"] == "assistant":
-        avatar_img = "🤖"
-    else:
-        avatar_img = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
-        
-    with st.chat_message(msg["role"], avatar=avatar_img):
-        st.markdown(msg["content"])
-
-user_input = st.chat_input("Ask a question or type your answer...")
-
-if user_input:
-    st.session_state["messages"].append({"role": "user", "content": user_input})
+if st.session_state["app_mode"] == "Solo Study / AI Chat":
+    st.title("🎓 Exegesis AI - Personal Tutor")
     
-    user_avatar = st.session_state.get("profile_pic") if st.session_state.get("profile_pic") else "👤"
-    with st.chat_message("user", avatar=user_avatar):
-        st.markdown(user_input)
+    for msg in st.session_state["messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-    if detect_harmful_keywords(user_input):
-        with st.spinner("Exegesis AI is thinking..."):
-            safety_reply = generate_dynamic_safety_response(user_input)
-        st.session_state["messages"].append({"role": "assistant", "content": safety_reply})
+    user_input = st.chat_input("Ask a study question...")
+
+    if user_input:
+        st.session_state["messages"].append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        if detect_harmful_keywords(user_input):
+            reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
+            st.session_state["messages"].append({"role": "assistant", "content": reply})
+            save_user_session()
+            st.rerun()
+
+        chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
+        try:
+            resp = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"},
+                json={"model": "openrouter/free", "messages": chat_context},
+                timeout=20
+            )
+            ai_reply = resp.json()["choices"][0]["message"]["content"].strip()
+        except Exception:
+            ai_reply = "⚠️ Sync error. Please try again."
+
+        st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
         st.rerun()
 
-    if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
-        st.session_state["is_sad_mode"] = True
-
-    weather_report = get_weather(st.session_state["user_city"])
-
-    realtime_info = (
-        f"\n\n[Context - Location for Weather: {st.session_state['user_city']} | "
-        f"Weather Details: {weather_report}]"
-    )
-
-    base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
-    full_system_prompt = base_prompt + realtime_info
-
-    chat_context = [{"role": "system", "content": full_system_prompt}] + st.session_state["messages"]
+# =====================================================================
+# MODE 2: FRIENDS & STUDY GROUPS WITH @exegesis
+# =====================================================================
+elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
+    st.title("👥 Friends & Group Study Room")
     
-    with st.spinner("Exegesis AI is thinking..."):
-        try:
-            response = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions", 
-                headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"}, 
-                json={"model": "openrouter/free", "messages": chat_context}, 
-                timeout=20
-            )
-            ai_reply = response.json()["choices"][0]["message"]["content"].strip()
-            ai_reply = ai_reply.replace("User Safety: safe", "").replace("Response Safety: safe", "").strip()
-            if not ai_reply:
-                ai_reply = "I'm here! What would you like to talk about or work on?"
-        except Exception:
-            ai_reply = "⚠️ Sync error. Please resubmit your response."
+    tab1, tab2 = st.tabs(["Friend Requests", "Group Chat Room"])
+    
+    with tab1:
+        st.subheader("Add Friend (Requires Full Name)")
+        target_fullname = st.text_input("Enter Peer's Exact Full Name")
+        if st.button("Send Friend Request"):
+            if target_fullname.strip() == "":
+                st.error("Please enter a valid full name.")
+            else:
+                db.collection("friend_requests").add({
+                    "from_user": user_name,
+                    "from_fullname": st.session_state["full_name"],
+                    "to_fullname": target_fullname.strip(),
+                    "status": "pending"
+                })
+                st.success("Friend request sent!")
+                
+        st.subheader("Pending Requests")
+        reqs = db.collection("friend_requests").where("to_fullname", "==", st.session_state["full_name"]).where("status", "==", "pending").stream()
+        for r in reqs:
+            r_data = r.to_dict()
+            st.write(f"Request from: **{r_data['from_fullname']}**")
+            if st.button("Accept", key=r.id):
+                db.collection("friend_requests").document(r.id).update({"status": "accepted"})
+                st.success("Friend added!")
+                st.rerun()
+
+    with tab2:
+        st.subheader("Study Room Chat (Tag @exegesis for help)")
+        
+        if check_chat_suspension():
+            st.error("🚫 Your chat access is suspended for 1 day due to foul language violations.")
+            st.stop()
             
-    st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
-    save_user_session()
-    st.rerun()
+        # Display group messages from Firestore
+        room_msgs = db.collection("group_room").order_by("time").stream()
+        for msg in room_msgs:
+            m = msg.to_dict()
+            st.markdown(f"**{m['sender']}**: {m['text']}")
+            
+        group_input = st.chat_input("Message group...")
+        if group_input:
+            if detect_foul_language(group_input):
+                sus_until = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+                db.collection("suspensions").document(user_name).set({"expires_at": sus_until})
+                st.error("⚠️ Foul language detected! Your chat is suspended for 1 day.")
+                st.rerun()
+                
+            db.collection("group_room").add({
+                "sender": st.session_state["full_name"],
+                "text": group_input,
+                "time": datetime.now(timezone.utc).isoformat()
+            })
+            
+            # Check if @exegesis was mentioned
+            if "@exegesis" in group_input.lower():
+                try:
+                    resp = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={"Authorization": f"Bearer {FULL_API_KEY}", "Content-Type": "application/json"},
+                        json={"model": "openrouter/free", "messages": [{"role": "system", "content": TUTOR_PROMPT}, {"role": "user", "content": group_input}]},
+                        timeout=20
+                    )
+                    ai_help = resp.json()["choices"][0]["message"]["content"].strip()
+                    db.collection("group_room").add({
+                        "sender": "Exegesis AI 🤖",
+                        "text": ai_help,
+                        "time": datetime.now(timezone.utc).isoformat()
+                    })
+                except Exception:
+                    pass
+            st.rerun()
