@@ -4,7 +4,7 @@ import re
 import requests
 import streamlit as st
 
-st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Exegesis AI Enterprise", page_icon="🎓", layout="wide")
 
 # --- Secure Secrets Fetching ---
 if "OPENROUTER_API_KEY" in st.secrets:
@@ -31,13 +31,14 @@ def save_database():
     with open(USER_FILE, "w") as f:
         json.dump(st.session_state["users_db"], f)
 
-# --- System Prompt Blocks ---
+# --- Strict Scaffolding Prompt Blocks ---
 TUTOR_PROMPT = (
     "You are Exegesis AI, a friendly tutor for school students. "
-    "Guide students step-by-step using scaffolding. "
-    "Check their answers: if correct, praise and explain. If almost correct, say 'You are almost there' and guide the wrong step. "
-    "If incorrect, say 'Not quite' and give hints progressively. "
-    "If they ask for further explanation, use a simple real-world analogy. Keep sentences short and simple."
+    "Follow a strict 3-stage hint scaffolding rule: "
+    "1. Your first hint must be vague and gentle. "
+    "2. Your second hint must be subtle. "
+    "3. Your third hint must be a little obvious, but it MUST NEVER contain the final answer. "
+    "Guide students step-by-step and never give direct answers right away."
 )
 FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend to a student who feels sad."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
