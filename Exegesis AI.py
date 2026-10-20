@@ -86,8 +86,6 @@ TUTOR_PROMPT = (
     "3. Do NOT include meta-labels or describe the hint level.\n"
     "4. If tagged as @exegesis in group chats, solve the students' doubts step-by-step."
 )
-FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend."
-DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
 
 # --- Initialize Session States ---
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
@@ -204,3 +202,316 @@ with st.sidebar:
 
     if st.session_state["profile_pic"]:
         st.image(st.session_state["profile_pic"], width=80)
+
+    st.markdown("---")
+    
+    # Show Chat History & New Chat only when in Solo Study mode
+    if st.session_state["app_mode"] == "Solo Study / AI Chat":
+        if st.button("➕ New Chat / Topic", use_container_width=True):
+            if st.session_state["messages"]:
+                chat_title = st.session_state["messages"][0]["content"][:25] + "..."
+                st.session_state["chat_history"].append({
+                    "title": chat_title,
+                    "messages": st.session_state["messages"],
+                    "time": datetime.now(timezone.utc).isoformat()
+                })
+            st.session_state["messages"] = []
+            save_user_session()
+            st.rerun()
+
+        st.subheader("💬 Chat History")
+        for i, chat in enumerate(st.session_state["chat_history"]):
+            cols = st.columns([4, 1])
+            with cols[0]:
+                if st.button(chat["title"], key=f"history_{i}"):
+                    st.session_state["messages"] = chat["messages"]
+                    st.rerun()
+            with cols[1]:
+                if st.button("❌", key=f"del_chat_{i}"):
+                    st.session_state["chat_history"].pop(i)
+                    save_user_session()
+                    st.rerun()
+        st.markdown("---")
+
+    # Group Chats Sidebar History
+    st.subheader("🟣 Group Chat History")
+    groups_query = db.collection("groups").stream()
+    for g in groups_query:
+        g_data = g.to_dict()
+        g_type = g_data.get("group_type", "Student Group")
+        
+        can_view = False
+        if user_role == "Student Portal" and g_type == "Student Group":
+            can_view = True
+        elif user_role == "Teacher Portal" and (g_type == "Student Group" or g_type == "Teacher Group"):
+            can_view = True
+        elif user_role in ["Principal Control Panel", "Parent Portal"]:
+            can_view = True 
+        elif user_role == "Personal Account":
+            can_view = True
+
+        if can_view:
+            if st.button(f"🟣 {g_data['name']}", key=f"sidebar_group_{g.id}", use_container_width=True):
+                st.session_state["active_group_id"] = g.id
+                st.session_state["app_mode"] = "👥 Friends & Study Groups"
+                st.rerun()
+
+    st.markdown("---")
+    st.subheader("🌤️ Weather Report")
+    user_location = st.text_input("Location:", value=st.session_state["user_city"])
+    if user_location != st.session_state["user_city"]:
+        st.session_state["user_city"] = user_location
+        save_user_session()
+    st.markdown(get_weather(st.session_state["user_city"]))
+
+    st.markdown("---")
+    if st.button("Log out", use_container_width=True):
+        save_user_session()
+        st.session_state["logged_in"] = False
+        st.session_state["parent_verified"] = False
+        st.rerun()
+
+# --- Security & Foul Language Checkers ---
+def detect_harmful_keywords(text):
+    harmful_keywords = ["kill", "suicide", "harm", "hurt", "violence", "weapon", "gun", "die", "unalive"]
+    found = any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
+    if found and user_role == "Personal Account":
+        db.collection("parent_alerts").add({
+            "child": st.session_state["full_name"],
+            "alert": "Child expressed distressing or harmful thoughts.",
+            "time": datetime.now(timezone.utc).isoformat()
+        })
+    return found
+
+def detect_foul_language(text):
+    foul_words = ["badword1", "badword2", "idiot", "stupid"]
+    return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in foul_words)
+
+def check_chat_suspension():
+    sus_ref = db.collection("suspensions").document(user_name)
+    sus_doc = sus_ref.get()
+    if sus_doc.exists:
+        sus_data = sus_doc.to_dict()
+        expiry_time = datetime.fromisoformat(sus_data["expires_at"])
+        if datetime.now(timezone.utc) < expiry_time:
+            return True
+        else:
+            sus_ref.delete()
+    return False
+
+# =====================================================================
+# PARENT PORTAL VIEW
+# =====================================================================
+if user_role == "Parent Portal":
+    st.title(f"Hello {st.session_state['full_name']} (Parent Dashboard)")
+    if st.session_state["parent_mode"] == "School Account Parent":
+        st.subheader("🏫 School Account Monitoring")
+        st.info("Here you can access your child's completed tasks and connect directly with teachers.")
+        teacher_msg = st.text_area("Send direct message to teacher:")
+        if st.button("Send to Teacher"):
+            if teacher_msg.strip():
+                db.collection("teacher_parent_messages").add({
+                    "parent": st.session_state["full_name"],
+                    "message": teacher_msg,
+                    "time": datetime.now(timezone.utc).isoformat()
+                })
+                st.success("Message sent to teacher!")
+    else:
+        st.subheader("🏠 Personal Account Monitoring")
+        st.info("AI Safety Monitoring & Activity Tracker")
+        alerts = db.collection("parent_alerts").stream()
+        st.markdown("### ⚠️ Child Activity & Safety Alerts")
+        for alert in alerts:
+            a_data = alert.to_dict()
+            st.warning(f"**{a_data['child']}** - {a_data['alert']} ({a_data['time']})")
+        st.markdown("### 💡 Ways to Console Your Child")
+        st.markdown("- Listen actively and without judgment.\n- Reassure them of your unconditional support.\n- Connect with professional counseling or guidance if needed.")
+    st.stop()
+
+# =====================================================================
+# MODE 1: SOLO STUDY / AI CHAT
+# =====================================================================
+if st.session_state["app_mode"] == "Solo Study / AI Chat":
+    st.title(f"Hello {st.session_state['full_name']}! 🎓 Exegesis AI - Personal Tutor")
+    
+    for msg in st.session_state["messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    user_input = st.chat_input("Ask a study question...")
+
+    if user_input:
+        st.session_state["messages"].append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        if detect_harmful_keywords(user_input):
+            reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
+            st.session_state["messages"].append({"role": "assistant", "content": reply})
+            save_user_session()
+            st.rerun()
+
+        chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
+        try:
+            resp = requests.post(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {FULL_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "meta-llama/llama-3.2-3b-instruct:free",
+                    "messages": chat_context
+                },
+                timeout=20
+            )
+            ai_reply = resp.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            ai_reply = f"⚠️ Sync error: {e}"
+
+        st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
+        save_user_session()
+        st.rerun()
+
+# =====================================================================
+# MODE 2: FRIENDS & STUDY GROUPS WITH @exegesis
+# =====================================================================
+elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
+    st.title(f"Hello {st.session_state['full_name']}! 👥 Friends & Study Groups")
+    
+    tab1, tab2, tab3 = st.tabs(["Friend Requests", "Create Group Chat", "Active Group Chat Room"])
+    
+    with tab1:
+        st.subheader("Add Friend (Requires Full Name)")
+        target_fullname = st.text_input("Enter Peer's Exact Full Name")
+        if st.button("Send Friend Request"):
+            if target_fullname.strip() == "":
+                st.error("Please enter a valid full name.")
+            else:
+                db.collection("friend_requests").add({
+                    "from_user": user_name,
+                    "from_fullname": st.session_state["full_name"],
+                    "to_fullname": target_fullname.strip(),
+                    "status": "pending"
+                })
+                st.success("Friend request sent!")
+                
+        st.subheader("Roblox-Style Friends List")
+        accepted_reqs = db.collection("friend_requests").where("status", "==", "accepted").stream()
+        friend_cols = st.columns(4)
+        idx = 0
+        for r in accepted_reqs:
+            r_data = r.to_dict()
+            if r_data["from_fullname"] == st.session_state["full_name"] or r_data["to_fullname"] == st.session_state["full_name"]:
+                friend_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
+                with friend_cols[idx % 4]:
+                    st.markdown(f"🟢 **{friend_name}**\n*Online*")
+                idx += 1
+
+        st.subheader("Pending Requests")
+        reqs = db.collection("friend_requests").where("to_fullname", "==", st.session_state["full_name"]).where("status", "==", "pending").stream()
+        for r in reqs:
+            r_data = r.to_dict()
+            st.write(f"Request from: **{r_data['from_fullname']}**")
+            if st.button("Accept", key=r.id):
+                db.collection("friend_requests").document(r.id).update({"status": "accepted"})
+                st.success("Friend added!")
+                st.rerun()
+
+    with tab2:
+        st.subheader("Create a New Study Group")
+        new_group_name = st.text_input("Group Name")
+        group_type_choice = st.selectbox("Group Category", ["Student Group", "Teacher Group"])
+        uploaded_group_pic = st.file_uploader("Group Profile Picture", type=["png", "jpg", "jpeg"], key="group_pic_upload")
+        
+        if st.button("Create Group"):
+            if not new_group_name.strip():
+                st.error("Please provide a group name.")
+            else:
+                pic_data = ""
+                if uploaded_group_pic:
+                    pic_data = f"data:image/png;base64,{base64.b64encode(uploaded_group_pic.read()).decode('utf-8')}"
+                
+                group_ref = db.collection("groups").add({
+                    "name": new_group_name.strip(),
+                    "group_type": group_type_choice,
+                    "creator": st.session_state["full_name"],
+                    "profile_pic": pic_data,
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                st.success(f"Group '{new_group_name}' created successfully!")
+                st.rerun()
+
+    with tab3:
+        st.subheader("Study Room Chat (Tag @exegesis for help)")
+        
+        all_groups = list(db.collection("groups").stream())
+        group_options = {g.id: g.to_dict()["name"] for g in all_groups}
+        
+        if not group_options:
+            st.info("No groups created yet. Go to 'Create Group Chat' tab to start one!")
+        else:
+            selected_gid = st.selectbox(
+                "Select Group Chat",
+                options=list(group_options.keys()),
+                format_func=lambda x: f"🟣 {group_options[x]}",
+                index=list(group_options.keys()).index(st.session_state["active_group_id"]) if st.session_state["active_group_id"] in group_options else 0
+            )
+            st.session_state["active_group_id"] = selected_gid
+            
+            g_doc = db.collection("groups").document(selected_gid).get()
+            if g_doc.exists:
+                g_info = g_doc.to_dict()
+                if g_info.get("profile_pic"):
+                    st.image(g_info["profile_pic"], width=60)
+            
+            if check_chat_suspension():
+                st.error("🚫 Your chat access is suspended for 1 day due to foul language violations.")
+                st.stop()
+                
+            room_msgs = db.collection("groups").document(selected_gid).collection("messages").order_by("time").stream()
+            for msg in room_msgs:
+                m = msg.to_dict()
+                st.markdown(f"**{m['sender']}**: {m['text']}")
+                
+            group_input = st.text_input("Message group...", key="group_chat_input_box")
+            if st.button("Send Message", key="send_group_btn"):
+                if group_input.strip():
+                    if detect_foul_language(group_input):
+                        sus_until = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+                        db.collection("suspensions").document(user_name).set({"expires_at": sus_until})
+                        st.error("⚠️ Foul language detected! Your chat is suspended for 1 day.")
+                        st.rerun()
+                        
+                    db.collection("groups").document(selected_gid).collection("messages").add({
+                        "sender": st.session_state["full_name"],
+                        "text": group_input,
+                        "time": datetime.now(timezone.utc).isoformat()
+                    })
+                    
+                    if "@exegesis" in group_input.lower():
+                        try:
+                            resp = requests.post(
+                                url="https://openrouter.ai/api/v1/chat/completions",
+                                headers={
+                                    "Authorization": f"Bearer {FULL_API_KEY}",
+                                    "Content-Type": "application/json"
+                                },
+                                json={
+                                    "model": "meta-llama/llama-3.2-3b-instruct:free",
+                                    "messages": [
+                                        {"role": "system", "content": TUTOR_PROMPT},
+                                        {"role": "user", "content": group_input}
+                                    ]
+                                },
+                                timeout=20
+                            )
+                            ai_help = resp.json()["choices"][0]["message"]["content"].strip()
+                            db.collection("groups").document(selected_gid).collection("messages").add({
+                                "sender": "Exegesis AI 🤖",
+                                "text": ai_help,
+                                "time": datetime.now(timezone.utc).isoformat()
+                            })
+                        except Exception:
+                            pass
+                    st.rerun()
