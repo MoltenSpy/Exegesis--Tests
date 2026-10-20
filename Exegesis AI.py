@@ -52,20 +52,22 @@ def save_user_session():
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
-# --- Weather Function (Celsius & Fahrenheit + High & Low) ---
+# --- Weather & Local Time Function ---
 def get_weather(city_name):
     if not city_name:
         return "Please enter a location."
     try:
-        url = f"https://wttr.in/{city_name}?format=j1"
+        # Fetch local time (%T), condition (%C), and temp (%t)
+        url = f"https://wttr.in/{city_name}?format=%T+%C+%t"
         response = requests.get(url, timeout=5)
         
-        if response.status_code == 200:
-            data = response.json()
-            condition = data["current_condition"][0]["weatherDesc"][0]["value"]
-            temp_c = data["current_condition"][0]["temp_C"]
-            temp_f = data["current_condition"][0]["temp_F"]
-            
+        url_j1 = f"https://wttr.in/{city_name}?format=j1"
+        resp_j1 = requests.get(url_j1, timeout=5)
+        
+        basic_info = response.text.strip()
+        
+        if resp_j1.status_code == 200:
+            data = resp_j1.json()
             today = data["weather"][0]
             min_c = today["mintempC"]
             max_c = today["maxtempC"]
@@ -73,14 +75,13 @@ def get_weather(city_name):
             max_f = today["maxtempF"]
             
             return (
-                f"**Condition:** {condition}\n\n"
-                f"🌡️ **Current:** {temp_c}°C / {temp_f}°F\n\n"
-                f"📉 **Lowest:** {min_c}°C / {min_f}°F\n\n"
-                f"📈 **Highest:** {max_c}°C / {max_f}°F"
+                f"Local Time & Condition: {basic_info}\n"
+                f"Lowest: {min_c}°C / {min_f}°F | Highest: {max_c}°C / {max_f}°F"
             )
+        return basic_info
     except Exception:
         pass
-    return "Unable to fetch weather data."
+    return "Unable to fetch weather and time data."
 
 # --- System Prompt Engineering Blocks ---
 TUTOR_PROMPT = (
@@ -89,7 +90,7 @@ TUTOR_PROMPT = (
     "1. Never give the final answer right away.\n"
     "2. Provide exactly up to 3 progressive hints over the conversation.\n"
     "3. Do NOT include meta-labels or describe the hint level.\n"
-    "4. If the user asks about the date, time, or weather, use the provided context to answer."
+    "4. If the user asks about the time or weather of their location, use the provided context to answer."
 )
 FRIEND_CHAT_PROMPT = "You are Exegesis AI, acting as a warm, comforting friend."
 DYNAMIC_SAFETY_PROMPT = "You are a compassionate safety responder urging a student to connect with a trusted adult."
@@ -195,11 +196,7 @@ with st.sidebar:
 
     st.markdown("---")
     
-    st.subheader("🌤️ Weather & Time Report")
-    
-    current_dt = datetime.now()
-    st.write(f"📅 **Date:** {current_dt.strftime('%A, %B %d, %Y')}")
-    st.write(f"⏰ **Time:** {current_dt.strftime('%I:%M %p')}")
+    st.subheader("🌤️ Weather Report")
     
     user_location = st.text_input("Enter Location for Weather:", value=st.session_state["user_city"])
     if user_location != st.session_state["user_city"]:
@@ -207,7 +204,7 @@ with st.sidebar:
         save_user_session()
         
     weather_info = get_weather(st.session_state["user_city"])
-    st.markdown(weather_info)
+    st.info(weather_info)
 
     st.markdown("---")
     st.write(f"👤 **Active User:** {user_name}")
@@ -305,12 +302,9 @@ if user_input:
     if check_sadness(user_input) and not st.session_state["is_sad_mode"]:
         st.session_state["is_sad_mode"] = True
 
-    current_dt = datetime.now()
-    date_str = current_dt.strftime("%A, %B %d, %Y")
-    time_str = current_dt.strftime("%I:%M %p")
-    location_weather = get_weather(st.session_state["user_city"])
+    location_weather_and_time = get_weather(st.session_state["user_city"])
     
-    realtime_info = f"\n\n[Context: Date: {date_str} | Time: {time_str} | Location: {st.session_state['user_city']} | Weather Summary: {location_weather}]"
+    realtime_info = f"\n\n[Context: Location: {st.session_state['user_city']} | Weather & Local Time: {location_weather_and_time}]"
 
     base_prompt = FRIEND_CHAT_PROMPT if st.session_state["is_sad_mode"] else TUTOR_PROMPT
     full_system_prompt = base_prompt + realtime_info
