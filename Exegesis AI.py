@@ -145,7 +145,6 @@ account_label = st.session_state["account_type"]
 with st.sidebar:
     st.title("📂 Workspace Settings")
     
-    # Profile Picture Display & Upload
     if st.session_state["profile_pic"]:
         st.image(st.session_state["profile_pic"], width=80)
     
@@ -168,7 +167,6 @@ with st.sidebar:
     st.markdown("---")
     if st.button("➕ New Chat / Topic", use_container_width=True):
         if st.session_state["messages"]:
-            # Save current chat to history
             chat_title = st.session_state["messages"][0]["content"][:25] + "..."
             st.session_state["chat_history"].append({
                 "title": chat_title,
@@ -224,7 +222,6 @@ def check_sadness(text):
 # =====================================================================
 st.title("🎓 Exegesis Learning Space")
 
-# Render persistent chat history
 for msg in st.session_state["messages"]:
     avatar_img = "🤖" if msg["role"] == "assistant" else "👤"
     with st.chat_message(msg["role"], avatar=avatar_img):
