@@ -332,7 +332,8 @@ if user_role == "Parent Portal":
 # MODE 1: SOLO STUDY / AI CHAT
 # =====================================================================
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
-    st.title(f"Hello {st.session_state['full_name']}! 🎓 Exegesis AI - Personal Tutor")
+    st.title(f"Hello {st.session_state['full_name']}!")
+    st.subheader("What's on your mind today?")
     
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
