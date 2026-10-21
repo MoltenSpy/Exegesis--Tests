@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 import base64
 
 st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
@@ -46,7 +46,6 @@ def save_user_session():
             "friends": st.session_state.get("friends", []),
             "account_type": st.session_state.get("account_type", ""),
             "parent_mode": st.session_state.get("parent_mode", ""),
-            "gender": st.session_state.get("user_gender", ""),
             "profile_pic": st.session_state.get("profile_pic", ""),
             "user_city": st.session_state.get("user_city", "London"),
             "last_active": datetime.now(timezone.utc).isoformat()
@@ -114,20 +113,51 @@ if not st.session_state["logged_in"]:
         
         if auth_mode == "Create Account":
             entered_fullname = st.text_input("Full Name", placeholder="Enter your exact Full Name")
-            acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "Principal Control Panel", "Parent Portal", "Personal Account"])
+            birth_date = st.date_input("Birthdate", value=date(2010, 1, 1), min_value=date(1920, 1, 1), max_value=date.today())
             
+            acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "School Account", "Parent Portal", "Personal Account"])
+            
+            school_name = ""
+            if acc_choice == "School Account":
+                school_name = st.text_input("School Name", placeholder="Enter school name")
+
             parent_sub = ""
-            child_username = ""
+            child_usernames_input = ""
             if acc_choice == "Parent Portal":
                 parent_sub = st.radio("Parent Account Type", ["School Account Parent", "Personal Account Parent"])
-                child_username = st.text_input("Child's Username", placeholder="Enter your child's username")
+                child_usernames_input = st.text_input("Child Username(s)", placeholder="Enter child username(s) separated by commas")
 
             if st.button("Register Account", use_container_width=True):
                 clean_name = entered_name.strip()
                 clean_fullname = entered_fullname.strip()
+                
+                today = date.today()
+                age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+
                 if not clean_name or not entered_pass or not clean_fullname:
                     st.error("All fields including full name are required.")
+                elif acc_choice == "Parent Portal" and not child_usernames_input.strip():
+                    st.error("Parents must fill in at least one child's username to create an account.")
                 else:
+                    if acc_choice == "Parent Portal":
+                        parsed_children = [c.strip() for c in child_usernames_input.split(",") if c.strip()]
+                        valid_children = True
+                        for c_user in parsed_children:
+                            _, c_doc = get_user_doc(c_user)
+                            if c_doc.exists:
+                                c_data = c_doc.to_dict()
+                                c_bday = c_data.get("birth_date")
+                                if c_bday:
+                                    c_bday_date = datetime.fromisoformat(c_bday).date()
+                                    c_age = today.year - c_bday_date.year - ((today.month, today.day) < (c_bday_date.month, c_bday_date.day))
+                                    if c_age >= 18:
+                                        st.error(f"Cannot link parent to {c_user} because they are 18 or older.")
+                                        valid_children = False
+                            else:
+                                st.warning(f"Child username '{c_user}' does not exist yet, but link will be saved.")
+                        if not valid_children:
+                            st.stop()
+
                     doc_ref, doc = get_user_doc(clean_name)
                     if doc.exists:
                         st.error("Username already exists.")
@@ -135,16 +165,20 @@ if not st.session_state["logged_in"]:
                         new_data = {
                             "password": entered_pass,
                             "full_name": clean_fullname,
+                            "birth_date": birth_date.isoformat(),
+                            "age": age,
                             "messages": [],
                             "chat_history": [],
                             "friends": [],
                             "account_type": acc_choice,
                             "parent_mode": parent_sub,
+                            "school_name": school_name,
                             "user_city": "London",
-                            "profile_pic": ""
+                            "profile_pic": "",
+                            "admin_role": "super_admin" if clean_name == "MoltenSpy" else "user"
                         }
                         if acc_choice == "Parent Portal":
-                            new_data["child_username"] = child_username.strip()
+                            new_data["child_usernames"] = [c.strip() for c in child_usernames_input.split(",") if c.strip()]
                             new_data["verified_by_child"] = False
 
                         doc_ref.set(new_data)
@@ -177,6 +211,31 @@ if not st.session_state["logged_in"]:
 user_name = st.session_state["user_name"]
 user_role = st.session_state["account_type"]
 
+# --- Birthday & 18th Birthday Check ---
+user_doc_ref, user_doc_snapshot = get_user_doc(user_name)
+if user_doc_snapshot.exists:
+    u_info = user_doc_snapshot.to_dict()
+    bday_str = u_info.get("birth_date")
+    if bday_str:
+        bday_date = datetime.fromisoformat(bday_str).date()
+        today_date = date.today()
+        if bday_date.month == today_date.month and bday_date.day == today_date.day:
+            st.balloons()
+            st.success("🎉 Happy Birthday! Wishing you an amazing day!")
+            
+            current_age = today_date.year - bday_date.year
+            if current_age == 18 and not u_info.get("turned_18_notified", False):
+                parents = db.collection("users").where("account_type", "==", "Parent Portal").stream()
+                for p in parents:
+                    p_data = p.to_dict()
+                    if user_name in p_data.get("child_usernames", []):
+                        db.collection("parent_alerts").add({
+                            "parent": p_data["full_name"],
+                            "alert": f"Your child {st.session_state['full_name']} has turned 18 today!",
+                            "time": datetime.now(timezone.utc).isoformat()
+                        })
+                user_doc_ref.set({"turned_18_notified": True}, merge=True)
+
 # --- Global Account Status (Ban / Suspension Check) ---
 action_doc = db.collection("account_actions").document(user_name).get()
 if action_doc.exists:
@@ -207,7 +266,7 @@ if user_role == "Student Portal" and not st.session_state["parent_verified"]:
 
 # --- Student Account Parent Link Request Check ---
 if user_role == "Student Portal":
-    parent_reqs = db.collection("users").where("child_username", "==", user_name).where("verified_by_child", "==", False).stream()
+    parent_reqs = db.collection("users").where("child_usernames", "array_contains", user_name).where("verified_by_child", "==", False).stream()
     for req in parent_reqs:
         p_data = req.to_dict()
         st.title(f"Hello {st.session_state['full_name']}!")
@@ -233,11 +292,14 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # --- Admin Panel for MoltenSpy ---
-    if user_name == "MoltenSpy":
+    # --- Admin Panel for MoltenSpy & Admins ---
+    current_user_doc = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
+    current_admin_role = current_user_doc.get("admin_role", "user")
+    
+    if user_name == "MoltenSpy" or current_admin_role in ["admin", "super_admin"]:
         st.subheader("👑 Admin Control Panel")
         target_user = st.text_input("Target Username", key="admin_target")
-        action_type = st.selectbox("Action", ["Ban Account", "Suspend Account", "Unban / Remove Action"])
+        action_type = st.selectbox("Action", ["Ban Account", "Suspend Account", "Unban / Remove Action", "Make Admin (Moderator)", "Make Super Admin", "Remove Admin Role"])
         action_reason = st.text_area("Reason", key="admin_reason")
         
         if st.button("Apply Action", use_container_width=True):
@@ -245,17 +307,33 @@ with st.sidebar:
             if not clean_target:
                 st.error("Please enter a username.")
             else:
-                if action_type == "Unban / Remove Action":
-                    db.collection("account_actions").document(clean_target).delete()
-                    st.success(f"Restrictions removed for {clean_target}.")
+                target_ref, target_snap = get_user_doc(clean_target)
+                if not target_snap.exists:
+                    st.error("Target user does not exist.")
                 else:
-                    status_text = "banned" if action_type == "Ban Account" else "suspended"
-                    db.collection("account_actions").document(clean_target).set({
-                        "type": status_text,
-                        "reason": action_reason.strip() if action_reason.strip() else "Violation of terms.",
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    })
-                    st.success(f"Account '{clean_target}' is now {status_text}.")
+                    if action_type == "Unban / Remove Action":
+                        db.collection("account_actions").document(clean_target).delete()
+                        st.success(f"Restrictions removed for {clean_target}.")
+                    elif action_type == "Make Admin (Moderator)":
+                        target_ref.set({"admin_role": "admin"}, merge=True)
+                        st.success(f"{clean_target} is now an Admin (Moderator).")
+                    elif action_type == "Make Super Admin":
+                        if user_name == "MoltenSpy":
+                            target_ref.set({"admin_role": "super_admin"}, merge=True)
+                            st.success(f"{clean_target} is now a Super Admin.")
+                        else:
+                            st.error("Only MoltenSpy can appoint Super Admins.")
+                    elif action_type == "Remove Admin Role":
+                        target_ref.set({"admin_role": "user"}, merge=True)
+                        st.success(f"Admin role removed for {clean_target}.")
+                    else:
+                        status_text = "banned" if action_type == "Ban Account" else "suspended"
+                        db.collection("account_actions").document(clean_target).set({
+                            "type": status_text,
+                            "reason": action_reason.strip() if action_reason.strip() else "Violation of terms.",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        st.success(f"Account '{clean_target}' is now {status_text}.")
         st.markdown("---")
 
     # --- Profile Picture Section ---
@@ -272,7 +350,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # Show Chat History & New Chat only when in Solo Study mode
     if st.session_state["app_mode"] == "Solo Study / AI Chat":
         if st.button("➕ New Chat / Topic", use_container_width=True):
             if st.session_state["messages"]:
@@ -300,7 +377,6 @@ with st.sidebar:
                     st.rerun()
         st.markdown("---")
 
-    # Group Chats Sidebar History
     st.subheader("🟣 Group Chat History")
     groups_query = db.collection("groups").stream()
     for g in groups_query:
@@ -327,6 +403,18 @@ with st.sidebar:
         st.session_state["logged_in"] = False
         st.session_state["parent_verified"] = False
         st.rerun()
+
+    st.markdown("---")
+    st.subheader("⚠️ Danger Zone")
+    confirm_del = st.checkbox("Confirm Account Deletion", key="del_acc_chk")
+    if st.button("Delete My Account", use_container_width=True):
+        if confirm_del:
+            db.collection("users").document(user_name).delete()
+            st.session_state["logged_in"] = False
+            st.success("Account deleted successfully.")
+            st.rerun()
+        else:
+            st.error("Please check the confirmation box first.")
 
 # --- Security & Foul Language Checkers ---
 def detect_harmful_keywords(text):
@@ -370,6 +458,27 @@ if user_role == "Parent Portal":
         st.stop()
 
     st.title(f"Hello {st.session_state['full_name']} (Parent Dashboard)")
+    
+    st.subheader("👶 Manage Children")
+    current_data = doc.to_dict()
+    children_list = current_data.get("child_usernames", [])
+    st.write(f"Linked Children: {', '.join(children_list) if children_list else 'None'}")
+    
+    new_child_input = st.text_input("Add Another Child Username")
+    if st.button("Add Child"):
+        if new_child_input.strip():
+            _, c_check = get_user_doc(new_child_input.strip())
+            if c_check.exists:
+                if new_child_input.strip() not in children_list:
+                    children_list.append(new_child_input.strip())
+                    doc_ref.set({"child_usernames": children_list}, merge=True)
+                    st.success("Child added successfully!")
+                    st.rerun()
+                else:
+                    st.warning("Child is already added.")
+            else:
+                st.error("Child username does not exist.")
+
     if st.session_state["parent_mode"] == "School Account Parent":
         st.subheader("🏫 School Account Monitoring")
         st.info("Here you can access your child's completed tasks and connect directly with teachers.")
@@ -389,7 +498,7 @@ if user_role == "Parent Portal":
         st.markdown("### ⚠️ Child Activity & Safety Alerts")
         for alert in alerts:
             a_data = alert.to_dict()
-            st.warning(f"**{a_data['child']}** - {a_data['alert']} ({a_data['time']})")
+            st.warning(f"**{a_data['parent']}** - {a_data['alert']} ({a_data['time']})")
         st.markdown("### 💡 Ways to Console Your Child")
         st.markdown("- Listen actively and without judgment.\n- Reassure them of your unconditional support.\n- Connect with professional counseling or guidance if needed.")
     st.stop()
@@ -473,6 +582,14 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 friend_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
                 with friend_cols[idx % 4]:
                     st.markdown(f"👤 **{friend_name}**")
+                    confirm_unfriend = st.checkbox(f"Confirm Unfriend {friend_name}", key=f"chk_unfriend_{r.id}")
+                    if st.button(f"Unfriend {friend_name}", key=f"unfriend_btn_{r.id}"):
+                        if confirm_unfriend:
+                            db.collection("friend_requests").document(r.id).delete()
+                            st.success(f"Unfriended {friend_name}.")
+                            st.rerun()
+                        else:
+                            st.error("Please check the confirmation box first.")
                 idx += 1
 
         st.subheader("Pending Requests")
