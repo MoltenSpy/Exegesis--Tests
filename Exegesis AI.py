@@ -78,12 +78,10 @@ def get_weather(city_name):
 
 # --- System Prompt Blocks ---
 TUTOR_PROMPT = (
-    "You are Exegesis AI, a friendly tutor for school students.\n"
-    "Follow a strict scaffolding process for questions or problems:\n"
-    "1. Never give the final answer right away.\n"
-    "2. Provide exactly up to 3 progressive hints over the conversation.\n"
-    "3. Do NOT include meta-labels or describe the hint level.\n"
-    "4. If tagged as @exegesis in group chats, solve the students' doubts step-by-step."
+    "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
+    "1. For study questions or homework: Act as a helpful tutor using scaffolding. Never give the final answer right away. Provide up to 3 progressive hints to help the student learn.\n"
+    "2. For general conversation or emotional support: Act like a warm, supportive friend. Listen, give encouragement, and keep the tone friendly and conversational.\n"
+    "3. If tagged as @exegesis in group chats, help solve doubts step-by-step."
 )
 
 # --- Initialize Session States ---
@@ -541,9 +539,15 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                 },
                 timeout=20
             )
-            ai_reply = resp.json()["choices"][0]["message"]["content"].strip()
+            response_json = resp.json()
+            
+            # Safe JSON structure check to prevent KeyError: 'choices'
+            if "choices" in response_json and len(response_json["choices"]) > 0:
+                ai_reply = response_json["choices"][0]["message"]["content"].strip()
+            else:
+                ai_reply = "⚠️ Unable to generate a response right now. Please check your OpenRouter API key configuration."
         except Exception as e:
-            ai_reply = f"⚠️ Sync error: {e}"
+            ai_reply = f"⚠️ Connection error: {e}"
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
@@ -694,7 +698,12 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                 },
                                 timeout=20
                             )
-                            ai_help = resp.json()["choices"][0]["message"]["content"].strip()
+                            g_resp_json = resp.json()
+                            if "choices" in g_resp_json and len(g_resp_json["choices"]) > 0:
+                                ai_help = g_resp_json["choices"][0]["message"]["content"].strip()
+                            else:
+                                ai_help = "I'm having trouble connecting to my service right now!"
+                            
                             db.collection("groups").document(selected_gid).collection("messages").add({
                                 "sender": "Exegesis AI 🤖",
                                 "text": ai_help,
