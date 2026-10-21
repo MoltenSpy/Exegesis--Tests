@@ -234,6 +234,15 @@ if user_doc_snapshot.exists:
                         })
                 user_doc_ref.set({"turned_18_notified": True}, merge=True)
 
+# --- Check Admin Warning Message ---
+warn_doc = db.collection("user_warnings").document(user_name).get()
+if warn_doc.exists:
+    w_data = warn_doc.to_dict()
+    st.warning(f"⚠️ **ADMIN WARNING**: {w_data.get('message', 'Please do not use bad language or inappropriate text or your account might get suspended or banned.')}")
+    if st.button("I Understand"):
+        db.collection("user_warnings").document(user_name).delete()
+        st.rerun()
+
 # --- Global Account Status (Ban / Suspension Check) ---
 action_doc = db.collection("account_actions").document(user_name).get()
 if action_doc.exists:
@@ -296,6 +305,48 @@ with st.sidebar:
     
     if user_name == "MoltenSpy" or current_admin_role in ["admin", "super_admin"]:
         st.subheader("👑 Admin Control Panel")
+        
+        # --- Violation Reports Viewer ---
+        st.markdown("### 🚨 Violation Reports")
+        reports = list(db.collection("violations").stream())
+        if not reports:
+            st.info("No violation reports right now!")
+        else:
+            for rep in reports:
+                rep_data = rep.to_dict()
+                u_target = rep_data.get("username", "Unknown")
+                v_count = rep_data.get("count", 1)
+                last_msg = rep_data.get("last_message", "")
+                
+                st.markdown(f"👤 **{u_target}** | **Violations:** {v_count}")
+                st.caption(f"Last offense: \"{last_msg}\"")
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    if st.button("⚠️ Warn", key=f"warn_{rep.id}"):
+                        db.collection("user_warnings").document(u_target).set({
+                            "message": "You have been flagged for using bad language or disrespecting family. Please refrain, or you may get suspended/banned.",
+                            "time": datetime.now(timezone.utc).isoformat()
+                        })
+                        st.success(f"Warning sent to {u_target}!")
+                with c2:
+                    if st.button("⏸️ Suspend", key=f"sus_{rep.id}"):
+                        db.collection("account_actions").document(u_target).set({
+                            "type": "suspended",
+                            "reason": f"Repeated inappropriate language ({v_count} times).",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        st.success(f"Suspended {u_target}!")
+                with c3:
+                    if st.button("🚫 Ban", key=f"ban_{rep.id}"):
+                        db.collection("account_actions").document(u_target).set({
+                            "type": "banned",
+                            "reason": f"Exceeded bad behavior limit ({v_count} violations).",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        st.success(f"Banned {u_target}!")
+                st.markdown("---")
+        
         target_user = st.text_input("Target Username", key="admin_target")
         action_type = st.selectbox("Action", ["Ban Account", "Suspend Account", "Unban / Remove Action", "Make Admin (Moderator)", "Make Super Admin", "Remove Admin Role"])
         action_reason = st.text_area("Reason", key="admin_reason")
@@ -427,8 +478,20 @@ def detect_harmful_keywords(text):
     return found
 
 def detect_foul_language(text):
-    foul_words = ["badword1", "badword2", "idiot", "stupid"]
-    return any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in foul_words)
+    foul_words = ["badword1", "badword2", "idiot", "stupid", "mother", "father", "parents", "trash", "hate"]
+    found = any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in foul_words)
+    if found:
+        # Log to Admin Violations Panel
+        v_doc = db.collection("violations").document(user_name).get()
+        current_count = v_doc.to_dict().get("count", 0) + 1 if v_doc.exists else 1
+        db.collection("violations").document(user_name).set({
+            "username": user_name,
+            "full_name": st.session_state["full_name"],
+            "count": current_count,
+            "last_message": text,
+            "time": datetime.now(timezone.utc).isoformat()
+        })
+    return found
 
 def check_chat_suspension():
     sus_ref = db.collection("suspensions").document(user_name)
@@ -525,6 +588,9 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             save_user_session()
             st.rerun()
 
+        if detect_foul_language(user_input):
+            st.warning("⚠️ Inappropriate language flagged and sent to admin.")
+
         chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
         try:
             resp = requests.post(
@@ -541,7 +607,6 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             )
             response_json = resp.json()
             
-            # Safe JSON structure check to prevent KeyError: 'choices'
             if "choices" in response_json and len(response_json["choices"]) > 0:
                 ai_reply = response_json["choices"][0]["message"]["content"].strip()
             else:
@@ -658,7 +723,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                     st.image(g_info["profile_pic"], width=60)
             
             if check_chat_suspension():
-                st.error("🚫 Your chat access is suspended for 1 day due to foul language violations.")
+                st.error("🚫 Your chat access is suspended due to bad language violations.")
                 st.stop()
                 
             room_msgs = db.collection("groups").document(selected_gid).collection("messages").order_by("time").stream()
@@ -670,10 +735,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             if st.button("Send Message", key="send_group_btn"):
                 if group_input.strip():
                     if detect_foul_language(group_input):
-                        sus_until = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
-                        db.collection("suspensions").document(user_name).set({"expires_at": sus_until})
-                        st.error("⚠️ Foul language detected! Your chat is suspended for 1 day.")
-                        st.rerun()
+                        st.error("⚠️ Bad language detected and logged to Admin Panel!")
                         
                     db.collection("groups").document(selected_gid).collection("messages").add({
                         "sender": st.session_state["full_name"],
