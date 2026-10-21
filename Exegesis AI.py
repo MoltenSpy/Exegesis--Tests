@@ -41,6 +41,7 @@ def save_user_session():
     if st.session_state.get("logged_in") and st.session_state.get("user_name"):
         doc_ref = db.collection("users").document(st.session_state["user_name"])
         doc_ref.set({
+            "full_name": st.session_state.get("full_name", ""),
             "messages": st.session_state.get("messages", []),
             "chat_history": st.session_state.get("chat_history", []),
             "friends": st.session_state.get("friends", []),
@@ -306,7 +307,6 @@ with st.sidebar:
     if user_name == "MoltenSpy" or current_admin_role in ["admin", "super_admin"]:
         st.subheader("👑 Admin Control Panel")
         
-        # --- Violation Reports Viewer ---
         st.markdown("### 🚨 Violation Reports")
         reports = list(db.collection("violations").stream())
         if not reports:
@@ -399,6 +399,33 @@ with st.sidebar:
 
     st.markdown("---")
     
+    # --- Account Settings (Change Name & Password) ---
+    st.subheader("⚙️ Account Settings")
+    with st.expander("Update Profile / Password"):
+        new_name_val = st.text_input("New Full Name", value=st.session_state["full_name"])
+        if st.button("Update Full Name"):
+            if new_name_val.strip():
+                st.session_state["full_name"] = new_name_val.strip()
+                db.collection("users").document(user_name).update({"full_name": new_name_val.strip()})
+                st.success("Full name updated successfully!")
+                st.rerun()
+            else:
+                st.error("Full name cannot be empty.")
+        
+        st.markdown("---")
+        new_pass_val = st.text_input("New Password", type="password")
+        confirm_pass_val = st.text_input("Confirm New Password", type="password")
+        if st.button("Change Password"):
+            if not new_pass_val or not confirm_pass_val:
+                st.error("Password fields cannot be empty.")
+            elif new_pass_val != confirm_pass_val:
+                st.error("Passwords do not match.")
+            else:
+                db.collection("users").document(user_name).update({"password": new_pass_val})
+                st.success("Password updated successfully!")
+
+    st.markdown("---")
+    
     if st.session_state["app_mode"] == "Solo Study / AI Chat":
         if st.button("➕ New Chat / Topic", use_container_width=True):
             if st.session_state["messages"]:
@@ -481,7 +508,6 @@ def detect_foul_language(text):
     foul_words = ["badword1", "badword2", "idiot", "stupid", "mother", "father", "parents", "trash", "hate"]
     found = any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in foul_words)
     if found:
-        # Log to Admin Violations Panel
         v_doc = db.collection("violations").document(user_name).get()
         current_count = v_doc.to_dict().get("count", 0) + 1 if v_doc.exists else 1
         db.collection("violations").document(user_name).set({
