@@ -398,7 +398,6 @@ with st.sidebar:
         st.image(st.session_state["profile_pic"], width=80)
 
     st.markdown("---")
-    
     # --- Account Settings (Change Name & Password) ---
     st.subheader("⚙️ Account Settings")
     with st.expander("Update Profile / Password"):
@@ -626,7 +625,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "meta-llama/llama-3.2-3b-instruct:free",
+                    "model": "meta-llama/llama-3.1-8b-instruct:free",
                     "messages": chat_context
                 },
                 timeout=20
@@ -636,7 +635,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             if "choices" in response_json and len(response_json["choices"]) > 0:
                 ai_reply = response_json["choices"][0]["message"]["content"].strip()
             else:
-                ai_reply = "⚠️ Unable to generate a response right now. Please check your OpenRouter API key configuration."
+                ai_reply = f"⚠️ Unable to generate a response right now. Details: {response_json.get('error', 'Unknown error')}"
         except Exception as e:
             ai_reply = f"⚠️ Connection error: {e}"
 
@@ -700,30 +699,44 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
     with tab2:
         st.subheader("Create a New Study Group")
         new_group_name = st.text_input("Group Name")
-        members_input = st.text_input("Member Usernames (separate with commas)", placeholder="e.g. john123, alex_99")
+        
+        accepted_reqs = db.collection("friend_requests").where("status", "==", "accepted").stream()
+        friend_names = []
+        for r in accepted_reqs:
+            r_data = r.to_dict()
+            if r_data["from_fullname"] == st.session_state["full_name"] or r_data["to_fullname"] == st.session_state["full_name"]:
+                friend_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
+                friend_names.append(friend_name)
+        
+        st.write(f"Your Friends: {', '.join(friend_names) if friend_names else 'None'}")
+        members_input = st.text_input("Member Full Names (separate with commas)")
         uploaded_group_pic = st.file_uploader("Group Profile Picture", type=["png", "jpg", "jpeg"], key="group_pic_upload")
         
         if st.button("Create Group"):
             if not new_group_name.strip():
                 st.error("Please provide a group name.")
             else:
-                pic_data = ""
-                if uploaded_group_pic:
-                    pic_data = f"data:image/png;base64,{base64.b64encode(uploaded_group_pic.read()).decode('utf-8')}"
-                
                 parsed_members = [m.strip() for m in members_input.split(",") if m.strip()]
-                if user_name not in parsed_members:
-                    parsed_members.append(user_name)
-                
-                group_ref = db.collection("groups").add({
-                    "name": new_group_name.strip(),
-                    "members": parsed_members,
-                    "creator": st.session_state["full_name"],
-                    "profile_pic": pic_data,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                })
-                st.success(f"Group '{new_group_name}' created successfully!")
-                st.rerun()
+                invalid_members = [m for m in parsed_members if m not in friend_names]
+                if invalid_members:
+                    st.error(f"You can only add your friends to a group! Not friends with: {', '.join(invalid_members)}")
+                else:
+                    pic_data = ""
+                    if uploaded_group_pic:
+                        pic_data = f"data:image/png;base64,{base64.b64encode(uploaded_group_pic.read()).decode('utf-8')}"
+                    
+                    if st.session_state["full_name"] not in parsed_members:
+                        parsed_members.append(st.session_state["full_name"])
+                    
+                    group_ref = db.collection("groups").add({
+                        "name": new_group_name.strip(),
+                        "members": parsed_members,
+                        "creator": st.session_state["full_name"],
+                        "profile_pic": pic_data,
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    })
+                    st.success(f"Group '{new_group_name}' created successfully!")
+                    st.rerun()
 
     with tab3:
         st.subheader("Study Room Chat (Tag @exegesis for help)")
@@ -755,48 +768,51 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             room_msgs = db.collection("groups").document(selected_gid).collection("messages").order_by("time").stream()
             for msg in room_msgs:
                 m = msg.to_dict()
-                st.markdown(f"**{m['sender']}**: {m['text']}")
+                is_me = (m['sender'] == st.session_state["full_name"])
+                chat_role = "user" if is_me else "assistant"
                 
-            group_input = st.text_input("Message group...", key="group_chat_input_box")
-            if st.button("Send Message", key="send_group_btn"):
-                if group_input.strip():
-                    if detect_foul_language(group_input):
-                        st.error("⚠️ Bad language detected and logged to Admin Panel!")
+                with st.chat_message(chat_role):
+                    st.markdown(f"**{m['sender']}**: {m['text']}")
+            
+            group_input = st.chat_input("Message group...", key="group_chat_input_box")
+            if group_input:
+                if detect_foul_language(group_input):
+                    st.error("⚠️ Bad language detected and logged to Admin Panel!")
+                
+                db.collection("groups").document(selected_gid).collection("messages").add({
+                    "sender": st.session_state["full_name"],
+                    "text": group_input,
+                    "time": datetime.now(timezone.utc).isoformat()
+                })
+                
+                if "@exegesis" in group_input.lower():
+                    try:
+                        resp = requests.post(
+                            url="https://openrouter.ai/api/v1/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {FULL_API_KEY}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": "meta-llama/llama-3.1-8b-instruct:free",
+                                "messages": [
+                                    {"role": "system", "content": TUTOR_PROMPT},
+                                    {"role": "user", "content": group_input}
+                                ]
+                            },
+                            timeout=20
+                        )
+                        g_resp_json = resp.json()
+                        if "choices" in g_resp_json and len(g_resp_json["choices"]) > 0:
+                            ai_help = g_resp_json["choices"][0]["message"]["content"].strip()
+                        else:
+                            ai_help = "I'm having trouble connecting to my service right now!"
                         
-                    db.collection("groups").document(selected_gid).collection("messages").add({
-                        "sender": st.session_state["full_name"],
-                        "text": group_input,
-                        "time": datetime.now(timezone.utc).isoformat()
-                    })
-                    
-                    if "@exegesis" in group_input.lower():
-                        try:
-                            resp = requests.post(
-                                url="https://openrouter.ai/api/v1/chat/completions",
-                                headers={
-                                    "Authorization": f"Bearer {FULL_API_KEY}",
-                                    "Content-Type": "application/json"
-                                },
-                                json={
-                                    "model": "meta-llama/llama-3.2-3b-instruct:free",
-                                    "messages": [
-                                        {"role": "system", "content": TUTOR_PROMPT},
-                                        {"role": "user", "content": group_input}
-                                    ]
-                                },
-                                timeout=20
-                            )
-                            g_resp_json = resp.json()
-                            if "choices" in g_resp_json and len(g_resp_json["choices"]) > 0:
-                                ai_help = g_resp_json["choices"][0]["message"]["content"].strip()
-                            else:
-                                ai_help = "I'm having trouble connecting to my service right now!"
-                            
-                            db.collection("groups").document(selected_gid).collection("messages").add({
-                                "sender": "Exegesis AI 🤖",
-                                "text": ai_help,
-                                "time": datetime.now(timezone.utc).isoformat()
-                            })
-                        except Exception:
-                            pass
-                    st.rerun()
+                        db.collection("groups").document(selected_gid).collection("messages").add({
+                            "sender": "Exegesis AI 🤖",
+                            "text": ai_help,
+                            "time": datetime.now(timezone.utc).isoformat()
+                        })
+                    except Exception:
+                        pass
+                st.rerun()
