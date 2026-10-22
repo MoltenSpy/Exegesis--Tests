@@ -425,6 +425,7 @@ with st.sidebar:
 
     st.markdown("---")
     
+    # --- Mode-Specific Sidebar Content ---
     if st.session_state["app_mode"] == "Solo Study / AI Chat":
         if st.button("➕ New Chat / Topic", use_container_width=True):
             if st.session_state["messages"]:
@@ -438,7 +439,7 @@ with st.sidebar:
             save_user_session()
             st.rerun()
 
-        st.subheader("💬 Chat History")
+        st.subheader("💬 Solo Chat History")
         for i, chat in enumerate(st.session_state["chat_history"]):
             cols = st.columns([4, 1])
             with cols[0]:
@@ -450,19 +451,25 @@ with st.sidebar:
                     st.session_state["chat_history"].pop(i)
                     save_user_session()
                     st.rerun()
-        st.markdown("---")
 
-    st.subheader("🟣 Group Chat History")
-    groups_query = db.collection("groups").stream()
-    for g in groups_query:
-        g_data = g.to_dict()
-        members = g_data.get("members", [])
+    elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
+        st.subheader("🟣 Group Chats")
         
-        if user_name in members or g_data.get("creator") == st.session_state["full_name"]:
-            if st.button(f"🟣 {g_data['name']}", key=f"sidebar_group_{g.id}", use_container_width=True):
-                st.session_state["active_group_id"] = g.id
-                st.session_state["app_mode"] = "👥 Friends & Study Groups"
+        if st.session_state["active_group_id"]:
+            if st.button("❌ Close Current Group", use_container_width=True):
+                st.session_state["active_group_id"] = None
                 st.rerun()
+            st.markdown("---")
+
+        groups_query = db.collection("groups").stream()
+        for g in groups_query:
+            g_data = g.to_dict()
+            members = g_data.get("members", [])
+            
+            if user_name in members or g_data.get("creator") == st.session_state["full_name"]:
+                if st.button(f"🟣 {g_data['name']}", key=f"sidebar_group_{g.id}", use_container_width=True):
+                    st.session_state["active_group_id"] = g.id
+                    st.rerun()
 
     st.markdown("---")
     st.subheader("🌤️ Weather Report")
