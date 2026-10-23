@@ -6,154 +6,16 @@ from firebase_admin import credentials, firestore
 from datetime import datetime, timezone, timedelta, date
 import base64
 
-# --- Page Configuration ---
-st.set_page_config(
-    page_title="Exegesis AI",
-    page_icon="🎓",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
 
-# --- Initialize Session State Variables ---
-if "theme_mode" not in st.session_state:
-    st.session_state["theme_mode"] = "Light"
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "user_name" not in st.session_state:
-    st.session_state["user_name"] = ""
-if "full_name" not in st.session_state:
-    st.session_state["full_name"] = ""
-if "account_type" not in st.session_state:
-    st.session_state["account_type"] = "Student Portal"
-if "parent_mode" not in st.session_state:
-    st.session_state["parent_mode"] = ""
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-if "chat_history" not in st.session_state:
-    st.session_state["chat_history"] = []
-if "friends" not in st.session_state:
-    st.session_state["friends"] = []
-if "active_group_id" not in st.session_state:
-    st.session_state["active_group_id"] = None
-if "profile_pic" not in st.session_state:
-    st.session_state["profile_pic"] = ""
-if "user_city" not in st.session_state:
-    st.session_state["user_city"] = "London"
-if "app_mode" not in st.session_state:
-    st.session_state["app_mode"] = "Solo Study / AI Chat"
-if "parent_verified" not in st.session_state:
-    st.session_state["parent_verified"] = False
-if "pending_prompt" not in st.session_state:
-    st.session_state["pending_prompt"] = ""
-if "show_full_settings" not in st.session_state:
-    st.session_state["show_full_settings"] = False
-
-# --- Dynamic High-Contrast CSS Engine ---
-if st.session_state["theme_mode"] == "Dark":
-    st.markdown("""
-    <style>
-        .stApp {
-            background-color: #0b0f17;
-            color: #f8fafc;
-        }
-        h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown, div {
-            color: #f8fafc !important;
-        }
-        .sub-text {
-            color: #94a3b8 !important;
-        }
-        .feature-card {
-            background-color: #121824;
-            padding: 20px;
-            border-radius: 16px;
-            border: 1px solid #1f293d;
-            height: 100%;
-            margin-bottom: 15px;
-        }
-        .settings-card {
-            background-color: #121824;
-            padding: 30px;
-            border-radius: 20px;
-            border: 1px solid #1f293d;
-            margin-bottom: 20px;
-        }
-        .stTextInput input, .stTextArea textarea, .stSelectbox div {
-            background-color: #1e293b !important;
-            color: #ffffff !important;
-            border: 1px solid #334155 !important;
-            border-radius: 8px !important;
-        }
-        .stTextInput input::placeholder {
-            color: #94a3b8 !important;
-        }
-        .stButton>button {
-            background-color: #3b82f6 !important;
-            color: #ffffff !important;
-            border-radius: 8px !important;
-            border: none !important;
-            font-weight: 600 !important;
-            padding: 8px 16px !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown("""
-    <style>
-        .stApp {
-            background-color: #f8fafc;
-            color: #0f172a;
-        }
-        h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown, div {
-            color: #0f172a !important;
-        }
-        .sub-text {
-            color: #64748b !important;
-        }
-        .feature-card {
-            background-color: #ffffff;
-            padding: 20px;
-            border-radius: 16px;
-            border: 1px solid #e2e8f0;
-            box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.03);
-            height: 100%;
-            margin-bottom: 15px;
-        }
-        .settings-card {
-            background-color: #ffffff;
-            padding: 30px;
-            border-radius: 20px;
-            border: 1px solid #e2e8f0;
-            box-shadow: 0px 6px 18px rgba(0, 0, 0, 0.04);
-            margin-bottom: 20px;
-        }
-        .stTextInput input, .stTextArea textarea, .stSelectbox div {
-            background-color: #ffffff !important;
-            color: #0f172a !important;
-            border: 1px solid #cbd5e1 !important;
-            border-radius: 8px !important;
-        }
-        .stTextInput input::placeholder {
-            color: #64748b !important;
-        }
-        .stButton>button {
-            background-color: #2563eb !important;
-            color: #ffffff !important;
-            border-radius: 8px !important;
-            border: none !important;
-            font-weight: 600 !important;
-            padding: 8px 16px !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- API Keys Verification ---
+# --- Secure API Secrets Fetching ---
 if "OPENROUTER_API_KEY" in st.secrets:
     FULL_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 else:
     st.error("🔒 API Key Missing! Please add 'OPENROUTER_API_KEY' to your Streamlit Secrets.")
     st.stop()
 
-# --- Firebase Connection Engine ---
+# --- Firebase Cloud Database Connection ---
 @st.cache_resource
 def init_firebase():
     if not firebase_admin._apps:
@@ -169,7 +31,7 @@ except Exception as e:
     st.error("⚠️ Firebase connection error. Please verify your Streamlit Secrets configuration.")
     st.stop()
 
-# --- Helper Database Functions ---
+# --- Database Helper Functions ---
 def get_user_doc(username):
     doc_ref = db.collection("users").document(username)
     doc = doc_ref.get()
@@ -187,23 +49,24 @@ def save_user_session():
             "parent_mode": st.session_state.get("parent_mode", ""),
             "profile_pic": st.session_state.get("profile_pic", ""),
             "user_city": st.session_state.get("user_city", "London"),
-            "theme_mode": st.session_state.get("theme_mode", "Light"),
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
-# --- Weather Integration Function ---
+# --- Weather Function ---
 def get_weather(city_name):
     if not city_name:
         return "Please enter a location."
     try:
         url_j1 = f"https://wttr.in/{city_name}?format=j1"
         resp_j1 = requests.get(url_j1, timeout=5)
+        
         if resp_j1.status_code == 200:
             data = resp_j1.json()
             condition = data["current_condition"][0]["weatherDesc"][0]["value"]
             temp_c = data["current_condition"][0]["temp_C"]
             temp_f = data["current_condition"][0]["temp_F"]
             today = data["weather"][0]
+            
             return (
                 f"**Condition:** {condition}\n\n"
                 f"🌡️ **Current:** {temp_c}°C / {temp_f}°F\n\n"
@@ -214,7 +77,7 @@ def get_weather(city_name):
         pass
     return "Unable to fetch weather data."
 
-# --- Master System Prompt ---
+# --- System Prompt Blocks ---
 TUTOR_PROMPT = (
     "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
     "1. For study questions or homework: Act as a helpful tutor using scaffolding. Never give the final answer right away. Provide up to 3 progressive hints to help the student learn.\n"
@@ -222,7 +85,22 @@ TUTOR_PROMPT = (
     "3. If tagged as @exegesis in group chats, help solve doubts step-by-step."
 )
 
-# --- Onboarding / Authentication View ---
+# --- Initialize Session States ---
+if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
+if "user_name" not in st.session_state: st.session_state["user_name"] = ""
+if "full_name" not in st.session_state: st.session_state["full_name"] = ""
+if "account_type" not in st.session_state: st.session_state["account_type"] = "Student Portal"
+if "parent_mode" not in st.session_state: st.session_state["parent_mode"] = ""
+if "messages" not in st.session_state: st.session_state["messages"] = []
+if "chat_history" not in st.session_state: st.session_state["chat_history"] = []
+if "friends" not in st.session_state: st.session_state["friends"] = []
+if "active_group_id" not in st.session_state: st.session_state["active_group_id"] = None
+if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
+if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
+if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
+if "parent_verified" not in st.session_state: st.session_state["parent_verified"] = False
+
+# --- Onboarding Login & Signup ---
 if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
     auth_mode = st.radio("Choose Action", ["Log In", "Create Account"], horizontal=True)
@@ -235,6 +113,7 @@ if not st.session_state["logged_in"]:
         if auth_mode == "Create Account":
             entered_fullname = st.text_input("Full Name", placeholder="Enter your exact Full Name")
             birth_date = st.date_input("Birthdate", value=date(2010, 1, 1), min_value=date(1920, 1, 1), max_value=date.today())
+            
             acc_choice = st.radio("Access Portal Role", ["Student Portal", "Teacher Portal", "School Account", "Parent Portal", "Personal Account"])
             
             school_name = ""
@@ -250,6 +129,7 @@ if not st.session_state["logged_in"]:
             if st.button("Register Account", use_container_width=True):
                 clean_name = entered_name.strip()
                 clean_fullname = entered_fullname.strip()
+                
                 today = date.today()
                 age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
 
@@ -294,7 +174,6 @@ if not st.session_state["logged_in"]:
                             "school_name": school_name,
                             "user_city": "London",
                             "profile_pic": "",
-                            "theme_mode": "Light",
                             "admin_role": "super_admin" if clean_name == "MoltenSpy" else "user"
                         }
                         if acc_choice == "Parent Portal":
@@ -307,6 +186,7 @@ if not st.session_state["logged_in"]:
             if st.button("Log In to Workspace", use_container_width=True):
                 clean_name = entered_name.strip()
                 doc_ref, doc = get_user_doc(clean_name)
+                
                 if doc.exists:
                     user_data = doc.to_dict()
                     if user_data.get("password") == entered_pass:
@@ -319,7 +199,6 @@ if not st.session_state["logged_in"]:
                         st.session_state["friends"] = user_data.get("friends", [])
                         st.session_state["user_city"] = user_data.get("user_city", "London")
                         st.session_state["profile_pic"] = user_data.get("profile_pic", "")
-                        st.session_state["theme_mode"] = user_data.get("theme_mode", "Light")
                         st.session_state["logged_in"] = True
                         st.rerun()
                     else:
@@ -331,7 +210,7 @@ if not st.session_state["logged_in"]:
 user_name = st.session_state["user_name"]
 user_role = st.session_state["account_type"]
 
-# --- Birthday & 18th Birthday Monitoring ---
+# --- Birthday & 18th Birthday Check ---
 user_doc_ref, user_doc_snapshot = get_user_doc(user_name)
 if user_doc_snapshot.exists:
     u_info = user_doc_snapshot.to_dict()
@@ -356,7 +235,7 @@ if user_doc_snapshot.exists:
                         })
                 user_doc_ref.set({"turned_18_notified": True}, merge=True)
 
-# --- Admin Warnings System ---
+# --- Check Admin Warning Message ---
 warn_doc = db.collection("user_warnings").document(user_name).get()
 if warn_doc.exists:
     w_data = warn_doc.to_dict()
@@ -365,7 +244,7 @@ if warn_doc.exists:
         db.collection("user_warnings").document(user_name).delete()
         st.rerun()
 
-# --- Account Suspension / Ban Handler ---
+# --- Global Account Status (Ban / Suspension Check) ---
 action_doc = db.collection("account_actions").document(user_name).get()
 if action_doc.exists:
     action_data = action_doc.to_dict()
@@ -380,7 +259,7 @@ if action_doc.exists:
         st.rerun()
     st.stop()
 
-# --- Student Portal Parent Verification Check ---
+# --- Student Account Parent Verification Check ---
 if user_role == "Student Portal" and not st.session_state["parent_verified"]:
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("🛡️ Parent Verification Check")
@@ -393,7 +272,7 @@ if user_role == "Student Portal" and not st.session_state["parent_verified"]:
             st.warning("Please ask a parent or guardian to verify before proceeding.")
     st.stop()
 
-# --- Parent Linking Confirmations ---
+# --- Student Account Parent Link Request Check ---
 if user_role == "Student Portal":
     parent_reqs = db.collection("users").where("child_usernames", "array_contains", user_name).where("verified_by_child", "==", False).stream()
     for req in parent_reqs:
@@ -413,18 +292,22 @@ if user_role == "Student Portal":
             st.rerun()
         st.stop()
 
-# --- Sidebar Workspace Navigation ---
+# --- Sidebar Navigation ---
 with st.sidebar:
     st.title("📂 Workspace")
+    
     st.session_state["app_mode"] = st.radio("Select Mode", ["Solo Study / AI Chat", "👥 Friends & Study Groups"])
+    
     st.markdown("---")
     
+    # --- Admin Panel for MoltenSpy & Admins ---
     current_user_doc = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
     current_admin_role = current_user_doc.get("admin_role", "user")
     
-    # Moderators & Admins Access
     if user_name == "MoltenSpy" or current_admin_role in ["admin", "super_admin"]:
-        st.subheader("👑 Moderation Panel")
+        st.subheader("👑 Admin Control Panel")
+        
+        st.markdown("### 🚨 Violation Reports")
         reports = list(db.collection("violations").stream())
         if not reports:
             st.info("No violation reports right now!")
@@ -434,13 +317,15 @@ with st.sidebar:
                 u_target = rep_data.get("username", "Unknown")
                 v_count = rep_data.get("count", 1)
                 last_msg = rep_data.get("last_message", "")
+                
                 st.markdown(f"👤 **{u_target}** | **Violations:** {v_count}")
                 st.caption(f"Last offense: \"{last_msg}\"")
+                
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     if st.button("⚠️ Warn", key=f"warn_{rep.id}"):
                         db.collection("user_warnings").document(u_target).set({
-                            "message": "You have been flagged for using bad language.",
+                            "message": "You have been flagged for using bad language or disrespecting family. Please refrain, or you may get suspended/banned.",
                             "time": datetime.now(timezone.utc).isoformat()
                         })
                         st.success(f"Warning sent to {u_target}!")
@@ -461,48 +346,86 @@ with st.sidebar:
                         })
                         st.success(f"Banned {u_target}!")
                 st.markdown("---")
-
-        # Exclusive Super Admin Controls
-        if user_name == "MoltenSpy" or current_admin_role == "super_admin":
-            st.subheader("⚙️ Super Admin Controls")
-            target_user = st.text_input("Target Username", key="admin_target")
-            action_type = st.selectbox("Action", ["Ban Account", "Suspend Account", "Unban / Remove Action", "Make Admin (Moderator)", "Make Super Admin", "Remove Admin Role"])
-            action_reason = st.text_area("Reason", key="admin_reason")
-            
-            if st.button("Apply Super Action", use_container_width=True):
-                clean_target = target_user.strip()
-                if not clean_target:
-                    st.error("Please enter a username.")
+        
+        target_user = st.text_input("Target Username", key="admin_target")
+        action_type = st.selectbox("Action", ["Ban Account", "Suspend Account", "Unban / Remove Action", "Make Admin (Moderator)", "Make Super Admin", "Remove Admin Role"])
+        action_reason = st.text_area("Reason", key="admin_reason")
+        
+        if st.button("Apply Action", use_container_width=True):
+            clean_target = target_user.strip()
+            if not clean_target:
+                st.error("Please enter a username.")
+            else:
+                target_ref, target_snap = get_user_doc(clean_target)
+                if not target_snap.exists:
+                    st.error("Target user does not exist.")
                 else:
-                    target_ref, target_snap = get_user_doc(clean_target)
-                    if not target_snap.exists:
-                        st.error("Target user does not exist.")
-                    else:
-                        if action_type == "Unban / Remove Action":
-                            db.collection("account_actions").document(clean_target).delete()
-                            st.success(f"Restrictions removed for {clean_target}.")
-                        elif action_type == "Make Admin (Moderator)":
-                            target_ref.set({"admin_role": "admin"}, merge=True)
-                            st.success(f"{clean_target} is now an Admin (Moderator).")
-                        elif action_type == "Make Super Admin":
-                            if user_name == "MoltenSpy":
-                                target_ref.set({"admin_role": "super_admin"}, merge=True)
-                                st.success(f"{clean_target} is now a Super Admin.")
-                            else:
-                                st.error("Only MoltenSpy can appoint Super Admins.")
-                        elif action_type == "Remove Admin Role":
-                            target_ref.set({"admin_role": "user"}, merge=True)
-                            st.success(f"Admin role removed for {clean_target}.")
+                    if action_type == "Unban / Remove Action":
+                        db.collection("account_actions").document(clean_target).delete()
+                        st.success(f"Restrictions removed for {clean_target}.")
+                    elif action_type == "Make Admin (Moderator)":
+                        target_ref.set({"admin_role": "admin"}, merge=True)
+                        st.success(f"{clean_target} is now an Admin (Moderator).")
+                    elif action_type == "Make Super Admin":
+                        if user_name == "MoltenSpy":
+                            target_ref.set({"admin_role": "super_admin"}, merge=True)
+                            st.success(f"{clean_target} is now a Super Admin.")
                         else:
-                            status_text = "banned" if action_type == "Ban Account" else "suspended"
-                            db.collection("account_actions").document(clean_target).set({
-                                "type": status_text,
-                                "reason": action_reason.strip() if action_reason.strip() else "Violation of terms.",
-                                "timestamp": datetime.now(timezone.utc).isoformat()
-                            })
-                            st.success(f"Account '{clean_target}' is now {status_text}.")
-            st.markdown("---")
+                            st.error("Only MoltenSpy can appoint Super Admins.")
+                    elif action_type == "Remove Admin Role":
+                        target_ref.set({"admin_role": "user"}, merge=True)
+                        st.success(f"Admin role removed for {clean_target}.")
+                    else:
+                        status_text = "banned" if action_type == "Ban Account" else "suspended"
+                        db.collection("account_actions").document(clean_target).set({
+                            "type": status_text,
+                            "reason": action_reason.strip() if action_reason.strip() else "Violation of terms.",
+                            "timestamp": datetime.now(timezone.utc).isoformat()
+                        })
+                        st.success(f"Account '{clean_target}' is now {status_text}.")
+        st.markdown("---")
 
+    # --- Profile Picture Section ---
+    st.subheader("👤 Profile Picture")
+    uploaded_profile = st.file_uploader("Upload Photo", type=["png", "jpg", "jpeg"], key="sidebar_profile_uploader")
+    if uploaded_profile:
+        pic_bytes = base64.b64encode(uploaded_profile.read()).decode("utf-8")
+        st.session_state["profile_pic"] = f"data:image/png;base64,{pic_bytes}"
+        save_user_session()
+        st.success("Profile picture updated!")
+
+    if st.session_state["profile_pic"]:
+        st.image(st.session_state["profile_pic"], width=80)
+
+    st.markdown("---")
+    # --- Account Settings (Change Name & Password) ---
+    st.subheader("⚙️ Account Settings")
+    with st.expander("Update Profile / Password"):
+        new_name_val = st.text_input("New Full Name", value=st.session_state["full_name"])
+        if st.button("Update Full Name"):
+            if new_name_val.strip():
+                st.session_state["full_name"] = new_name_val.strip()
+                db.collection("users").document(user_name).update({"full_name": new_name_val.strip()})
+                st.success("Full name updated successfully!")
+                st.rerun()
+            else:
+                st.error("Full name cannot be empty.")
+        
+        st.markdown("---")
+        new_pass_val = st.text_input("New Password", type="password")
+        confirm_pass_val = st.text_input("Confirm New Password", type="password")
+        if st.button("Change Password"):
+            if not new_pass_val or not confirm_pass_val:
+                st.error("Password fields cannot be empty.")
+            elif new_pass_val != confirm_pass_val:
+                st.error("Passwords do not match.")
+            else:
+                db.collection("users").document(user_name).update({"password": new_pass_val})
+                st.success("Password updated successfully!")
+
+    st.markdown("---")
+    
+    # --- Mode-Specific Sidebar Content ---
     if st.session_state["app_mode"] == "Solo Study / AI Chat":
         if st.button("➕ New Chat / Topic", use_container_width=True):
             if st.session_state["messages"]:
@@ -531,6 +454,7 @@ with st.sidebar:
 
     elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
         st.subheader("🟣 Group Chats")
+        
         if st.session_state["active_group_id"]:
             if st.button("❌ Close Current Group", use_container_width=True):
                 st.session_state["active_group_id"] = None
@@ -541,6 +465,7 @@ with st.sidebar:
         for g in groups_query:
             g_data = g.to_dict()
             members = g_data.get("members", [])
+            
             if user_name in members or g_data.get("creator") == st.session_state["full_name"]:
                 if st.button(f"🟣 {g_data['name']}", key=f"sidebar_group_{g.id}", use_container_width=True):
                     st.session_state["active_group_id"] = g.id
@@ -558,6 +483,7 @@ with st.sidebar:
     if st.button("Log out", use_container_width=True):
         save_user_session()
         st.session_state["logged_in"] = False
+        st.session_state["parent_verified"] = False
         st.rerun()
 
     st.markdown("---")
@@ -572,14 +498,14 @@ with st.sidebar:
         else:
             st.error("Please check the confirmation box first.")
 
-# --- Automated Moderation Systems ---
+# --- Security & Foul Language Checkers ---
 def detect_harmful_keywords(text):
     harmful_keywords = ["kill", "suicide", "harm", "hurt", "violence", "weapon", "gun", "die", "unalive"]
     found = any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
     if found and user_role == "Personal Account":
         db.collection("parent_alerts").add({
             "child": st.session_state["full_name"],
-            "alert": "Child expressed distressing thoughts.",
+            "alert": "Child expressed distressing or harmful thoughts.",
             "time": datetime.now(timezone.utc).isoformat()
         })
     return found
@@ -599,6 +525,18 @@ def detect_foul_language(text):
         })
     return found
 
+def check_chat_suspension():
+    sus_ref = db.collection("suspensions").document(user_name)
+    sus_doc = sus_ref.get()
+    if sus_doc.exists:
+        sus_data = sus_doc.to_dict()
+        expiry_time = datetime.fromisoformat(sus_data["expires_at"])
+        if datetime.now(timezone.utc) < expiry_time:
+            return True
+        else:
+            sus_ref.delete()
+    return False
+
 # =====================================================================
 # PARENT PORTAL VIEW
 # =====================================================================
@@ -606,13 +544,14 @@ if user_role == "Parent Portal":
     doc_ref, doc = get_user_doc(user_name)
     if doc.exists and not doc.to_dict().get("verified_by_child", True):
         st.title(f"Hello {st.session_state['full_name']} (Parent Dashboard)")
-        st.warning("⏳ Waiting for your child to confirm your request.")
+        st.warning("⏳ Waiting for your child to confirm your request. Please ask your child to log in and approve the parent link.")
         if st.button("Log out"):
             st.session_state["logged_in"] = False
             st.rerun()
         st.stop()
 
     st.title(f"Hello {st.session_state['full_name']} (Parent Dashboard)")
+    
     st.subheader("👶 Manage Children")
     current_data = doc.to_dict()
     children_list = current_data.get("child_usernames", [])
@@ -653,6 +592,8 @@ if user_role == "Parent Portal":
         for alert in alerts:
             a_data = alert.to_dict()
             st.warning(f"**{a_data['parent']}** - {a_data['alert']} ({a_data['time']})")
+        st.markdown("### 💡 Ways to Console Your Child")
+        st.markdown("- Listen actively and without judgment.\n- Reassure them of your unconditional support.\n- Connect with professional counseling or guidance if needed.")
     st.stop()
 
 # =====================================================================
@@ -660,13 +601,16 @@ if user_role == "Parent Portal":
 # =====================================================================
 if user_role == "Teacher Portal":
     st.title(f"🍎 Teacher Dashboard ({st.session_state['full_name']})")
+    
     t_tab1, t_tab2 = st.tabs(["📩 Parent Messages", "📋 Class Assignments"])
+    
     with t_tab1:
         st.subheader("Messages from Parents")
         p_msgs = db.collection("teacher_parent_messages").stream()
         for pm in p_msgs:
             pm_data = pm.to_dict()
             st.info(f"**From:** {pm_data.get('parent', 'Parent')}\n\n**Message:** {pm_data.get('message')}")
+            
     with t_tab2:
         st.subheader("Create Classroom Task")
         task_title = st.text_input("Task Title")
@@ -686,143 +630,14 @@ if user_role == "Teacher Portal":
 # MODE 1: SOLO STUDY / AI CHAT
 # =====================================================================
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
-    c_head1, c_head2, c_head3 = st.columns([7, 1, 1])
-    with c_head1:
-        st.markdown(f"""
-            <h1 style='margin:0; font-size: 28px;'>🎓 Exegesis <span style='color: #3b82f6;'>AI</span></h1>
-            <p class='sub-text' style='margin-top:-5px;'>Your AI thinking companion</p>
-        """, unsafe_allow_html=True)
-    with c_head2:
-        if st.button("📝", help="New Chat"):
-            st.session_state["messages"] = []
-            st.rerun()
-
-    with c_head3:
-        if st.button("⚙️ Settings", use_container_width=True):
-            st.session_state["show_full_settings"] = not st.session_state["show_full_settings"]
-            st.rerun()
-
-    # --- FULL SCREEN SETTINGS OVERLAY ---
-    if st.session_state["show_full_settings"]:
-        st.markdown("---")
-        st.markdown("## ⚙️ Account & Application Settings")
-        
-        col_set1, col_set2 = st.columns(2)
-        
-        with col_set1:
-            st.markdown("""
-                <div class="settings-card">
-                    <h3>👤 Profile Details</h3>
-                </div>
-            """, unsafe_allow_html=True)
-            uploaded_profile = st.file_uploader("Upload New Profile Picture", type=["png", "jpg", "jpeg"], key="gear_full_profile_uploader")
-            if uploaded_profile:
-                pic_bytes = base64.b64encode(uploaded_profile.read()).decode("utf-8")
-                st.session_state["profile_pic"] = f"data:image/png;base64,{pic_bytes}"
-                save_user_session()
-                st.success("Profile picture updated!")
-
-            if st.session_state["profile_pic"]:
-                st.image(st.session_state["profile_pic"], width=100)
-
-            st.markdown("---")
-            st.markdown("""
-                <div class="settings-card">
-                    <h3>🎨 Theme Appearance</h3>
-                </div>
-            """, unsafe_allow_html=True)
-            selected_theme = st.radio("Display Mode", ["Light", "Dark"], index=0 if st.session_state["theme_mode"] == "Light" else 1, key="gear_full_theme_radio", horizontal=True)
-            if selected_theme != st.session_state["theme_mode"]:
-                st.session_state["theme_mode"] = selected_theme
-                save_user_session()
-                st.rerun()
-
-        with col_set2:
-            st.markdown("""
-                <div class="settings-card">
-                    <h3>🔒 Change Password</h3>
-                </div>
-            """, unsafe_allow_html=True)
-            new_pass = st.text_input("New Password", type="password", key="gear_full_new_pass")
-            confirm_pass = st.text_input("Confirm New Password", type="password", key="gear_full_conf_pass")
-            if st.button("Update Password Now", use_container_width=True):
-                if not new_pass or not confirm_pass:
-                    st.error("Please enter a new password.")
-                elif new_pass != confirm_pass:
-                    st.error("Passwords do not match.")
-                else:
-                    db.collection("users").document(user_name).update({"password": new_pass})
-                    st.success("Password updated successfully!")
-
-        st.markdown("---")
-        if st.button("❌ Close Settings View", use_container_width=True):
-            st.session_state["show_full_settings"] = False
-            st.rerun()
-        st.stop()
-
-    st.markdown("---")
-
-    if not st.session_state["messages"]:
-        st.markdown("<h2 style='text-align: center; margin-top: 20px;'>What's on your mind?</h2>", unsafe_allow_html=True)
-        st.markdown("<p class='sub-text' style='text-align: center;'>Let's understand it together.</p>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("""
-                <div class="feature-card">
-                    <h3 style="color:#ec4899;">💖</h3>
-                    <h4>Emotional Buddy</h4>
-                    <p>Helps you feel heard, supported and calmer during tough times.</p>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Talk to Emotional Buddy", key="card1", use_container_width=True):
-                st.session_state["pending_prompt"] = "I need some encouragement and emotional support today."
-                st.rerun()
-
-            st.markdown("""
-                <div class="feature-card">
-                    <h3 style="color:#f59e0b;">✨</h3>
-                    <h4>What our ai offers</h4>
-                    <p>Get all the features a free AI offers to its users.</p>
-                    <p style="font-size:12px; margin-top:5px;" class="sub-text">• Makes it easy to understand step by step.</p>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("See AI Features", key="card3", use_container_width=True):
-                st.session_state["pending_prompt"] = "What features can you help me with?"
-                st.rerun()
-
-        with col2:
-            st.markdown("""
-                <div class="feature-card">
-                    <h3 style="color:#06b6d4;">💡</h3>
-                    <h4>Explore ideas</h4>
-                    <p>Discover new perspectives.</p>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Start Exploring", key="card2", use_container_width=True):
-                st.session_state["pending_prompt"] = "Help me brainstorm some fresh perspectives on a problem."
-                st.rerun()
-
-            st.markdown("""
-                <div class="feature-card">
-                    <h3 style="color:#10b981;">🎓</h3>
-                    <h4>Think deeply</h4>
-                    <p>Helps you analyse, reflect and find better solutions.</p>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Think Deeply", key="card4", use_container_width=True):
-                st.session_state["pending_prompt"] = "Can you help me analyze a topic step by step?"
-                st.rerun()
-
+    st.title(f"Hello {st.session_state['full_name']}!")
+    st.subheader("What's on your mind today?")
+    
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input("Message Exegesis AI...")
-    if st.session_state["pending_prompt"]:
-        user_input = st.session_state["pending_prompt"]
-        st.session_state["pending_prompt"] = ""
+    user_input = st.chat_input("Ask a study question...")
 
     if user_input:
         st.session_state["messages"].append({"role": "user", "content": user_input})
@@ -835,6 +650,9 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             save_user_session()
             st.rerun()
 
+        if detect_foul_language(user_input):
+            st.warning("⚠️ Inappropriate language flagged and sent to admin.")
+
         chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
         try:
             resp = requests.post(
@@ -844,16 +662,17 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "meta-llama/llama-3.1-8b-instruct",
+                    "model": "MiMo-V2.6-Pro",
                     "messages": chat_context
                 },
                 timeout=20
             )
             response_json = resp.json()
+            
             if "choices" in response_json and len(response_json["choices"]) > 0:
                 ai_reply = response_json["choices"][0]["message"]["content"].strip()
             else:
-                ai_reply = f"⚠️ Unable to generate a response. Details: {response_json.get('error', 'Unknown error')}"
+                ai_reply = f"⚠️ Unable to generate a response right now. Details: {response_json.get('error', 'Unknown error')}"
         except Exception as e:
             ai_reply = f"⚠️ Connection error: {e}"
 
@@ -862,10 +681,11 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
         st.rerun()
 
 # =====================================================================
-# MODE 2: FRIENDS & STUDY GROUPS
+# MODE 2: FRIENDS & STUDY GROUPS WITH @exegesis
 # =====================================================================
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
     st.title(f"Hello {st.session_state['full_name']}! 👥 Friends & Study Groups")
+    
     tab1, tab2, tab3 = st.tabs(["Friend Requests", "Create Group Chat", "Active Group Chat Room"])
     
     with tab1:
@@ -882,7 +702,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                     "status": "pending"
                 })
                 st.success("Friend request sent!")
-
+                
         st.subheader("Your Friends")
         accepted_reqs = db.collection("friend_requests").where("status", "==", "accepted").stream()
         friend_cols = st.columns(4)
@@ -916,25 +736,48 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
     with tab2:
         st.subheader("Create a New Study Group")
         new_group_name = st.text_input("Group Name")
+        
+        accepted_reqs = db.collection("friend_requests").where("status", "==", "accepted").stream()
+        friend_names = []
+        for r in accepted_reqs:
+            r_data = r.to_dict()
+            if r_data["from_fullname"] == st.session_state["full_name"] or r_data["to_fullname"] == st.session_state["full_name"]:
+                friend_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
+                friend_names.append(friend_name)
+        
+        st.write(f"Your Friends: {', '.join(friend_names) if friend_names else 'None'}")
         members_input = st.text_input("Member Full Names (separate with commas)")
+        uploaded_group_pic = st.file_uploader("Group Profile Picture", type=["png", "jpg", "jpeg"], key="group_pic_upload")
+        
         if st.button("Create Group"):
             if not new_group_name.strip():
                 st.error("Please provide a group name.")
             else:
                 parsed_members = [m.strip() for m in members_input.split(",") if m.strip()]
-                if st.session_state["full_name"] not in parsed_members:
-                    parsed_members.append(st.session_state["full_name"])
-                db.collection("groups").add({
-                    "name": new_group_name.strip(),
-                    "members": parsed_members,
-                    "creator": st.session_state["full_name"],
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                })
-                st.success(f"Group '{new_group_name}' created successfully!")
-                st.rerun()
+                invalid_members = [m for m in parsed_members if m not in friend_names]
+                if invalid_members:
+                    st.error(f"You can only add your friends to a group! Not friends with: {', '.join(invalid_members)}")
+                else:
+                    pic_data = ""
+                    if uploaded_group_pic:
+                        pic_data = f"data:image/png;base64,{base64.b64encode(uploaded_group_pic.read()).decode('utf-8')}"
+                    
+                    if st.session_state["full_name"] not in parsed_members:
+                        parsed_members.append(st.session_state["full_name"])
+                    
+                    group_ref = db.collection("groups").add({
+                        "name": new_group_name.strip(),
+                        "members": parsed_members,
+                        "creator": st.session_state["full_name"],
+                        "profile_pic": pic_data,
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    })
+                    st.success(f"Group '{new_group_name}' created successfully!")
+                    st.rerun()
 
     with tab3:
         st.subheader("Study Room Chat (Tag @exegesis for help)")
+        
         all_groups = list(db.collection("groups").stream())
         group_options = {g.id: g.to_dict()["name"] for g in all_groups}
         
@@ -949,11 +792,22 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             )
             st.session_state["active_group_id"] = selected_gid
             
+            g_doc = db.collection("groups").document(selected_gid).get()
+            if g_doc.exists:
+                g_info = g_doc.to_dict()
+                if g_info.get("profile_pic"):
+                    st.image(g_info["profile_pic"], width=60)
+            
+            if check_chat_suspension():
+                st.error("🚫 Your chat access is suspended due to bad language violations.")
+                st.stop()
+                
             room_msgs = db.collection("groups").document(selected_gid).collection("messages").order_by("time").stream()
             for msg in room_msgs:
                 m = msg.to_dict()
                 is_me = (m['sender'] == st.session_state["full_name"])
                 chat_role = "user" if is_me else "assistant"
+                
                 with st.chat_message(chat_role):
                     st.markdown(f"**{m['sender']}**: {m['text']}")
             
@@ -961,12 +815,13 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             if group_input:
                 if detect_foul_language(group_input):
                     st.error("⚠️ Bad language detected and logged to Admin Panel!")
-
+                
                 db.collection("groups").document(selected_gid).collection("messages").add({
                     "sender": st.session_state["full_name"],
                     "text": group_input,
                     "time": datetime.now(timezone.utc).isoformat()
                 })
+                
                 if "@exegesis" in group_input.lower():
                     try:
                         resp = requests.post(
@@ -976,7 +831,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                 "Content-Type": "application/json"
                             },
                             json={
-                                "model": "meta-llama/llama-3.1-8b-instruct",
+                                "model": "MiMo-V2.6-Pro",
                                 "messages": [
                                     {"role": "system", "content": TUTOR_PROMPT},
                                     {"role": "user", "content": group_input}
@@ -985,7 +840,11 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                             timeout=20
                         )
                         g_resp_json = resp.json()
-                        ai_help = g_resp_json["choices"][0]["message"]["content"].strip() if "choices" in g_resp_json else "Error"
+                        if "choices" in g_resp_json and len(g_resp_json["choices"]) > 0:
+                            ai_help = g_resp_json["choices"][0]["message"]["content"].strip()
+                        else:
+                            ai_help = "I'm having trouble connecting to my service right now!"
+                        
                         db.collection("groups").document(selected_gid).collection("messages").add({
                             "sender": "Exegesis AI 🤖",
                             "text": ai_help,
