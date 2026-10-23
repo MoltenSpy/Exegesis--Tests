@@ -597,6 +597,36 @@ if user_role == "Parent Portal":
     st.stop()
 
 # =====================================================================
+# TEACHER PORTAL VIEW
+# =====================================================================
+if user_role == "Teacher Portal":
+    st.title(f"🍎 Teacher Dashboard ({st.session_state['full_name']})")
+    
+    t_tab1, t_tab2 = st.tabs(["📩 Parent Messages", "📋 Class Assignments"])
+    
+    with t_tab1:
+        st.subheader("Messages from Parents")
+        p_msgs = db.collection("teacher_parent_messages").stream()
+        for pm in p_msgs:
+            pm_data = pm.to_dict()
+            st.info(f"**From:** {pm_data.get('parent', 'Parent')}\n\n**Message:** {pm_data.get('message')}")
+            
+    with t_tab2:
+        st.subheader("Create Classroom Task")
+        task_title = st.text_input("Task Title")
+        task_desc = st.text_area("Task Instructions")
+        if st.button("Assign Task"):
+            if task_title.strip():
+                db.collection("assignments").add({
+                    "teacher": st.session_state["full_name"],
+                    "title": task_title.strip(),
+                    "instructions": task_desc.strip(),
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+                st.success("Task assigned successfully!")
+    st.stop()
+
+# =====================================================================
 # MODE 1: SOLO STUDY / AI CHAT
 # =====================================================================
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
@@ -632,7 +662,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "meta-llama/llama-3.1-8b-instruct:free",
+                    "model": "MiMo-V2.6-Pro",
                     "messages": chat_context
                 },
                 timeout=20
@@ -801,7 +831,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                 "Content-Type": "application/json"
                             },
                             json={
-                                "model": "meta-llama/llama-3.1-8b-instruct:free",
+                                "model": "MiMo-V2.6-Pro",
                                 "messages": [
                                     {"role": "system", "content": TUTOR_PROMPT},
                                     {"role": "user", "content": group_input}
