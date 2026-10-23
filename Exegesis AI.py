@@ -45,6 +45,8 @@ if "parent_verified" not in st.session_state:
     st.session_state["parent_verified"] = False
 if "pending_prompt" not in st.session_state:
     st.session_state["pending_prompt"] = ""
+if "show_full_settings" not in st.session_state:
+    st.session_state["show_full_settings"] = False
 
 # --- Dynamic High-Contrast CSS Engine ---
 if st.session_state["theme_mode"] == "Dark":
@@ -54,7 +56,7 @@ if st.session_state["theme_mode"] == "Dark":
             background-color: #0b0f17;
             color: #f8fafc;
         }
-        h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, div {
+        h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown, div {
             color: #f8fafc !important;
         }
         .sub-text {
@@ -67,10 +69,13 @@ if st.session_state["theme_mode"] == "Dark":
             border: 1px solid #1f293d;
             height: 100%;
             margin-bottom: 15px;
-            transition: transform 0.2s ease-in-out;
         }
-        .feature-card:hover {
-            transform: translateY(-2px);
+        .settings-card {
+            background-color: #121824;
+            padding: 30px;
+            border-radius: 20px;
+            border: 1px solid #1f293d;
+            margin-bottom: 20px;
         }
         .stTextInput input, .stTextArea textarea, .stSelectbox div {
             background-color: #1e293b !important;
@@ -98,7 +103,7 @@ else:
             background-color: #f8fafc;
             color: #0f172a;
         }
-        h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, div {
+        h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown, div {
             color: #0f172a !important;
         }
         .sub-text {
@@ -112,10 +117,14 @@ else:
             box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.03);
             height: 100%;
             margin-bottom: 15px;
-            transition: transform 0.2s ease-in-out;
         }
-        .feature-card:hover {
-            transform: translateY(-2px);
+        .settings-card {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 20px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0px 6px 18px rgba(0, 0, 0, 0.04);
+            margin-bottom: 20px;
         }
         .stTextInput input, .stTextArea textarea, .stSelectbox div {
             background-color: #ffffff !important;
@@ -689,40 +698,67 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             st.rerun()
 
     with c_head3:
-        settings_expander = st.expander("⚙️ Settings", expanded=False)
-
-    with settings_expander:
-        st.subheader("👤 Profile Settings")
-        uploaded_profile = st.file_uploader("Change Profile Picture", type=["png", "jpg", "jpeg"], key="gear_profile_uploader")
-        if uploaded_profile:
-            pic_bytes = base64.b64encode(uploaded_profile.read()).decode("utf-8")
-            st.session_state["profile_pic"] = f"data:image/png;base64,{pic_bytes}"
-            save_user_session()
-            st.success("Profile picture updated!")
-
-        if st.session_state["profile_pic"]:
-            st.image(st.session_state["profile_pic"], width=80)
-
-        st.markdown("---")
-        st.subheader("🔒 Security")
-        new_pass = st.text_input("New Password", type="password", key="gear_new_pass")
-        confirm_pass = st.text_input("Confirm New Password", type="password", key="gear_conf_pass")
-        if st.button("Update Password"):
-            if not new_pass or not confirm_pass:
-                st.error("Please enter a new password.")
-            elif new_pass != confirm_pass:
-                st.error("Passwords do not match.")
-            else:
-                db.collection("users").document(user_name).update({"password": new_pass})
-                st.success("Password updated successfully!")
-
-        st.markdown("---")
-        st.subheader("🎨 Appearance")
-        selected_theme = st.radio("Choose Mode", ["Light", "Dark"], index=0 if st.session_state["theme_mode"] == "Light" else 1, key="gear_theme_radio")
-        if selected_theme != st.session_state["theme_mode"]:
-            st.session_state["theme_mode"] = selected_theme
-            save_user_session()
+        if st.button("⚙️ Settings", use_container_width=True):
+            st.session_state["show_full_settings"] = not st.session_state["show_full_settings"]
             st.rerun()
+
+    # --- FULL SCREEN SETTINGS OVERLAY ---
+    if st.session_state["show_full_settings"]:
+        st.markdown("---")
+        st.markdown("## ⚙️ Account & Application Settings")
+        
+        col_set1, col_set2 = st.columns(2)
+        
+        with col_set1:
+            st.markdown("""
+                <div class="settings-card">
+                    <h3>👤 Profile Details</h3>
+                </div>
+            """, unsafe_allow_html=True)
+            uploaded_profile = st.file_uploader("Upload New Profile Picture", type=["png", "jpg", "jpeg"], key="gear_full_profile_uploader")
+            if uploaded_profile:
+                pic_bytes = base64.b64encode(uploaded_profile.read()).decode("utf-8")
+                st.session_state["profile_pic"] = f"data:image/png;base64,{pic_bytes}"
+                save_user_session()
+                st.success("Profile picture updated!")
+
+            if st.session_state["profile_pic"]:
+                st.image(st.session_state["profile_pic"], width=100)
+
+            st.markdown("---")
+            st.markdown("""
+                <div class="settings-card">
+                    <h3>🎨 Theme Appearance</h3>
+                </div>
+            """, unsafe_allow_html=True)
+            selected_theme = st.radio("Display Mode", ["Light", "Dark"], index=0 if st.session_state["theme_mode"] == "Light" else 1, key="gear_full_theme_radio", horizontal=True)
+            if selected_theme != st.session_state["theme_mode"]:
+                st.session_state["theme_mode"] = selected_theme
+                save_user_session()
+                st.rerun()
+
+        with col_set2:
+            st.markdown("""
+                <div class="settings-card">
+                    <h3>🔒 Change Password</h3>
+                </div>
+            """, unsafe_allow_html=True)
+            new_pass = st.text_input("New Password", type="password", key="gear_full_new_pass")
+            confirm_pass = st.text_input("Confirm New Password", type="password", key="gear_full_conf_pass")
+            if st.button("Update Password Now", use_container_width=True):
+                if not new_pass or not confirm_pass:
+                    st.error("Please enter a new password.")
+                elif new_pass != confirm_pass:
+                    st.error("Passwords do not match.")
+                else:
+                    db.collection("users").document(user_name).update({"password": new_pass})
+                    st.success("Password updated successfully!")
+
+        st.markdown("---")
+        if st.button("❌ Close Settings View", use_container_width=True):
+            st.session_state["show_full_settings"] = False
+            st.rerun()
+        st.stop()
 
     st.markdown("---")
 
@@ -808,7 +844,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "MiMo-V2.6-Pro",
+                    "model": "meta-llama/llama-3.1-8b-instruct",
                     "messages": chat_context
                 },
                 timeout=20
@@ -940,7 +976,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                 "Content-Type": "application/json"
                             },
                             json={
-                                "model": "MiMo-V2.6-Pro",
+                                "model": "meta-llama/llama-3.1-8b-instruct",
                                 "messages": [
                                     {"role": "system", "content": TUTOR_PROMPT},
                                     {"role": "user", "content": group_input}
