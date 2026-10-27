@@ -666,7 +666,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "meta-llama/llama-3.3-70b-instruct:free",
+                    "model": "google/gemma-4-31b-it:free",
                     "messages": chat_context
                 },
                 timeout=20
@@ -835,7 +835,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                 "Content-Type": "application/json"
                             },
                             json={
-                                "model": "meta-llama/llama-3.3-70b-instruct:free",
+                                "model": "google/gemma-4-31b-it:free",
                                 "messages": [
                                     {"role": "system", "content": TUTOR_PROMPT},
                                     {"role": "user", "content": group_input}
