@@ -159,7 +159,7 @@ if not st.session_state["logged_in"]:
 
                     doc_ref, doc = get_user_doc(clean_name)
                     if doc.exists:
-                        st.error("Username already exists.")
+                        st.error("This username is already taken.")
                     else:
                         new_data = {
                             "password": entered_pass,
@@ -361,7 +361,7 @@ with st.sidebar:
             else:
                 target_ref, target_snap = get_user_doc(clean_target)
                 if not target_snap.exists:
-                    st.error("Target user does not exist.")
+                    st.error(f"Target user '{clean_target}' does not exist.")
                 else:
                     if action_type == "Unban / Remove Action":
                         db.collection("account_actions").document(clean_target).delete()
