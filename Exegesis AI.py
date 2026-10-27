@@ -444,6 +444,15 @@ with st.sidebar:
             st.rerun()
 
         st.subheader("💬 Solo Chat History")
+        
+        # Clear All Chats Option (Appears when there are more than 3 chats)
+        if len(st.session_state["chat_history"]) > 3:
+            if st.button("🗑️ Clear All Chats", use_container_width=True):
+                st.session_state["chat_history"] = []
+                save_user_session()
+                st.success("All chat history cleared!")
+                st.rerun()
+
         for i, chat in enumerate(st.session_state["chat_history"]):
             cols = st.columns([4, 1])
             with cols[0]:
