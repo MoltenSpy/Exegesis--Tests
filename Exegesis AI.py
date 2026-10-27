@@ -1,3 +1,8 @@
+# =====================================================================
+# EXEGESIS AI - IITB SPARKX COMPETITION EDITION
+# Comprehensive Student-Centric AI Tutoring & Moderation Platform
+# =====================================================================
+
 import re
 import requests
 import streamlit as st
@@ -6,18 +11,29 @@ from firebase_admin import credentials, firestore
 from datetime import datetime, timezone, timedelta, date
 import base64
 
-st.set_page_config(page_title="Exegesis AI", page_icon="🎓", layout="wide")
+# --- Streamlit Page Configuration ---
+st.set_page_config(
+    page_title="Exegesis AI - Advanced Student Platform",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- Secure API Secrets Fetching ---
+# =====================================================================
+# SECTION 1: SECURE API SECRETS & CONFIGURATION
+# =====================================================================
 if "OPENROUTER_API_KEY" in st.secrets:
     FULL_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 else:
-    st.error("🔒 API Key Missing! Please add 'OPENROUTER_API_KEY' to your Streamlit Secrets.")
+    st.error("🔒 API Key Missing! Please add 'OPENROUTER_API_KEY' to your Streamlit Secrets configuration dashboard.")
     st.stop()
 
-# --- Firebase Cloud Database Connection ---
+# =====================================================================
+# SECTION 2: FIREBASE CLOUD DATABASE CONNECTION
+# =====================================================================
 @st.cache_resource
 def init_firebase():
+    """Initializes and returns the Firestore client securely using Streamlit Secrets."""
     if not firebase_admin._apps:
         cred_dict = dict(st.secrets["firebase"])
         cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
@@ -28,16 +44,20 @@ def init_firebase():
 try:
     db = init_firebase()
 except Exception as e:
-    st.error("⚠️ Firebase connection error. Please verify your Streamlit Secrets configuration.")
+    st.error("⚠️ Firebase connection error. Please verify your database credentials in Streamlit Secrets.")
     st.stop()
 
-# --- Database Helper Functions ---
+# =====================================================================
+# SECTION 3: CORE DATABASE & SESSION UTILITY FUNCTIONS
+# =====================================================================
 def get_user_doc(username):
+    """Retrieves a user document reference and snapshot from Firestore."""
     doc_ref = db.collection("users").document(username)
     doc = doc_ref.get()
     return doc_ref, doc
 
 def save_user_session():
+    """Persists current user profile data and active session state to Firestore."""
     if st.session_state.get("logged_in") and st.session_state.get("user_name"):
         doc_ref = db.collection("users").document(st.session_state["user_name"])
         doc_ref.set({
@@ -52,8 +72,11 @@ def save_user_session():
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
 
-# --- Weather Function ---
+# =====================================================================
+# SECTION 4: WEATHER API INTEGRATION
+# =====================================================================
 def get_weather(city_name):
+    """Fetches live weather information for the sidebar widget."""
     if not city_name:
         return "Please enter a location."
     try:
@@ -77,7 +100,9 @@ def get_weather(city_name):
         pass
     return "Unable to fetch weather data."
 
-# --- System Prompt Blocks ---
+# =====================================================================
+# SECTION 5: AI SYSTEM PROMPTS & SCAFFOLDING GUIDELINES
+# =====================================================================
 TUTOR_PROMPT = (
     "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
     "1. For study questions or homework: Act as a helpful tutor using scaffolding. Never give the final answer right away. Provide up to 3 progressive hints to help the student learn.\n"
@@ -85,7 +110,9 @@ TUTOR_PROMPT = (
     "3. If tagged as @exegesis in group chats, help solve doubts step-by-step."
 )
 
-# --- Initialize Session States ---
+# =====================================================================
+# SECTION 6: SESSION STATE INITIALIZATION
+# =====================================================================
 if "logged_in" not in st.session_state: st.session_state["logged_in"] = False
 if "user_name" not in st.session_state: st.session_state["user_name"] = ""
 if "full_name" not in st.session_state: st.session_state["full_name"] = ""
@@ -100,7 +127,9 @@ if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
 if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
 if "parent_verified" not in st.session_state: st.session_state["parent_verified"] = False
 
-# --- Onboarding Login & Signup ---
+# =====================================================================
+# SECTION 7: ONBOARDING INTERFACE (LOGIN & REGISTRATION)
+# =====================================================================
 if not st.session_state["logged_in"]:
     st.title("=== Welcome to Exegesis AI ===")
     auth_mode = st.radio("Choose Action", ["Log In", "Create Account"], horizontal=True)
@@ -108,6 +137,15 @@ if not st.session_state["logged_in"]:
     col1, col2 = st.columns(2)
     with col1:
         entered_name = st.text_input("Username", placeholder="Enter your username")
+        
+        # Real-time username availability check during registration
+        username_taken = False
+        if auth_mode == "Create Account" and entered_name.strip():
+            _, check_snap = get_user_doc(entered_name.strip())
+            if check_snap.exists:
+                username_taken = True
+                st.warning("⚠️ This username is already taken. Please choose another one.")
+
         entered_pass = st.text_input("Password", type="password", placeholder="Enter your password")
         
         if auth_mode == "Create Account":
@@ -135,6 +173,8 @@ if not st.session_state["logged_in"]:
 
                 if not clean_name or not entered_pass or not clean_fullname:
                     st.error("All fields including full name are required.")
+                elif username_taken:
+                    st.error("This username is already taken. Registration halted.")
                 elif acc_choice == "Parent Portal" and not child_usernames_input.strip():
                     st.error("Parents must fill in at least one child's username to create an account.")
                 else:
@@ -213,7 +253,9 @@ if not st.session_state["logged_in"]:
 user_name = st.session_state["user_name"]
 user_role = st.session_state["account_type"]
 
-# --- Birthday & 18th Birthday Check ---
+# =====================================================================
+# SECTION 8: AUTOMATED BIRTHDAY & 18TH MILESTONE CHECKERS
+# =====================================================================
 user_doc_ref, user_doc_snapshot = get_user_doc(user_name)
 if user_doc_snapshot.exists:
     u_info = user_doc_snapshot.to_dict()
@@ -238,7 +280,9 @@ if user_doc_snapshot.exists:
                         })
                 user_doc_ref.set({"turned_18_notified": True}, merge=True)
 
-# --- Check Admin Warning Message ---
+# =====================================================================
+# SECTION 9: MODERATION & ACCOUNT RESTRICTION ENFORCEMENT
+# =====================================================================
 warn_doc = db.collection("user_warnings").document(user_name).get()
 if warn_doc.exists:
     w_data = warn_doc.to_dict()
@@ -247,7 +291,6 @@ if warn_doc.exists:
         db.collection("user_warnings").document(user_name).delete()
         st.rerun()
 
-# --- Global Account Status (Ban / Suspension Check) ---
 action_doc = db.collection("account_actions").document(user_name).get()
 if action_doc.exists:
     action_data = action_doc.to_dict()
@@ -262,7 +305,9 @@ if action_doc.exists:
         st.rerun()
     st.stop()
 
-# --- Student Account Parent Verification Check ---
+# =====================================================================
+# SECTION 10: PARENT LINK VERIFICATION PROTOCOLS
+# =====================================================================
 if user_role == "Student Portal" and not st.session_state["parent_verified"]:
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("🛡️ Parent Verification Check")
@@ -275,7 +320,6 @@ if user_role == "Student Portal" and not st.session_state["parent_verified"]:
             st.warning("Please ask a parent or guardian to verify before proceeding.")
     st.stop()
 
-# --- Student Account Parent Link Request Check ---
 if user_role == "Student Portal":
     parent_reqs = db.collection("users").where("child_usernames", "array_contains", user_name).where("verified_by_child", "==", False).stream()
     for req in parent_reqs:
@@ -295,7 +339,9 @@ if user_role == "Student Portal":
             st.rerun()
         st.stop()
 
-# --- Sidebar Navigation ---
+# =====================================================================
+# SECTION 11: SIDEBAR NAVIGATION & ADMIN CONTROLS
+# =====================================================================
 with st.sidebar:
     st.title("📂 Workspace")
     
@@ -303,7 +349,6 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # --- Admin Panel for MoltenSpy & Admins ---
     current_user_doc = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
     current_admin_role = current_user_doc.get("admin_role", "user")
     
@@ -388,7 +433,6 @@ with st.sidebar:
                         st.success(f"Account '{clean_target}' is now {status_text}.")
         st.markdown("---")
 
-    # --- Profile Picture Section ---
     st.subheader("👤 Profile Picture")
     uploaded_profile = st.file_uploader("Upload Photo", type=["png", "jpg", "jpeg"], key="sidebar_profile_uploader")
     if uploaded_profile:
@@ -402,7 +446,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # --- Account Settings (Change Name & Password) ---
     st.subheader("⚙️ Account Settings")
     with st.expander("Update Profile / Password"):
         new_name_val = st.text_input("New Full Name", value=st.session_state["full_name"])
@@ -429,7 +472,6 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # --- Mode-Specific Sidebar Content ---
     if st.session_state["app_mode"] == "Solo Study / AI Chat":
         if st.button("➕ New Chat / Topic", use_container_width=True):
             if st.session_state["messages"]:
@@ -445,7 +487,6 @@ with st.sidebar:
 
         st.subheader("💬 Solo Chat History")
         
-        # Clear All Chats Option (Appears when there are more than 3 chats)
         if len(st.session_state["chat_history"]) > 3:
             if st.button("🗑️ Clear All Chats", use_container_width=True):
                 st.session_state["chat_history"] = []
@@ -511,7 +552,9 @@ with st.sidebar:
         else:
             st.error("Please check the confirmation box first.")
 
-# --- Security & Foul Language Checkers ---
+# =====================================================================
+# SECTION 12: SECURITY & MODERATION ENGINES
+# =====================================================================
 def detect_harmful_keywords(text):
     harmful_keywords = ["kill", "suicide", "harm", "hurt", "violence", "weapon", "gun", "die", "unalive"]
     found = any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
@@ -551,7 +594,7 @@ def check_chat_suspension():
     return False
 
 # =====================================================================
-# PARENT PORTAL VIEW
+# SECTION 13: PARENT PORTAL DASHBOARD VIEW
 # =====================================================================
 if user_role == "Parent Portal":
     doc_ref, doc = get_user_doc(user_name)
@@ -610,7 +653,7 @@ if user_role == "Parent Portal":
     st.stop()
 
 # =====================================================================
-# TEACHER PORTAL VIEW
+# SECTION 14: TEACHER PORTAL DASHBOARD VIEW
 # =====================================================================
 if user_role == "Teacher Portal":
     st.title(f"🍎 Teacher Dashboard ({st.session_state['full_name']})")
@@ -640,7 +683,7 @@ if user_role == "Teacher Portal":
     st.stop()
 
 # =====================================================================
-# MODE 1: SOLO STUDY / AI CHAT
+# SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
     st.title(f"Hello {st.session_state['full_name']}!")
@@ -694,7 +737,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
         st.rerun()
 
 # =====================================================================
-# MODE 2: FRIENDS & STUDY GROUPS WITH @exegesis
+# SECTION 16: COLLABORATIVE STUDY GROUPS & @exegesis INTEGRATION
 # =====================================================================
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
     st.title(f"Hello {st.session_state['full_name']}! 👥 Friends & Study Groups")
