@@ -138,7 +138,6 @@ if not st.session_state["logged_in"]:
     with col1:
         entered_name = st.text_input("Username", placeholder="Enter your username")
         
-        # Real-time username availability check during registration
         username_taken = False
         if auth_mode == "Create Account" and entered_name.strip():
             _, check_snap = get_user_doc(entered_name.strip())
@@ -355,6 +354,18 @@ with st.sidebar:
     if user_name == "MoltenSpy" or current_admin_role in ["admin", "super_admin"]:
         st.subheader("👑 Admin Control Panel")
         
+        # --- Feedback Summary for MoltenSpy (Every 10 Feedbacks) ---
+        feedbacks = list(db.collection("feedbacks").stream())
+        if len(feedbacks) >= 10:
+            st.markdown("### 📊 Feedback Summary (10+ Received)")
+            fb_texts = [f.to_dict().get("feedback", "") for f in feedbacks]
+            st.info(f"Total Feedbacks: {len(feedbacks)}\n\nLatest Feedback Sample: \"{fb_texts[-1]}\"")
+            if st.button("Clear Feedback Archive"):
+                for f in feedbacks:
+                    db.collection("feedbacks").document(f.id).delete()
+                st.success("Feedback archive cleared!")
+                st.rerun()
+        
         st.markdown("### 🚨 Violation Reports")
         reports = list(db.collection("violations").stream())
         if not reports:
@@ -540,6 +551,23 @@ with st.sidebar:
         st.session_state["parent_verified"] = False
         st.rerun()
 
+    # --- Feedback Section (Above Delete Account Section) ---
+    st.markdown("---")
+    st.subheader("📝 Send Feedback")
+    user_feedback_text = st.text_area("Share your feedback or suggestions:", key="sidebar_feedback_input")
+    if st.button("Submit Feedback", use_container_width=True):
+        if user_feedback_text.strip():
+            db.collection("feedbacks").add({
+                "username": user_name,
+                "full_name": st.session_state["full_name"],
+                "feedback": user_feedback_text.strip(),
+                "time": datetime.now(timezone.utc).isoformat()
+            })
+            st.success("Thank you for your feedback!")
+        else:
+            st.error("Feedback cannot be empty.")
+
+    # --- Danger Zone (Delete Account Section) ---
     st.markdown("---")
     st.subheader("⚠️ Danger Zone")
     confirm_del = st.checkbox("Confirm Account Deletion", key="del_acc_chk")
