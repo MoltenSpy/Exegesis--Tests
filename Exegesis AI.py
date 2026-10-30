@@ -724,28 +724,64 @@ if user_role == "Teacher Portal":
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("What's on your mind today? 😊")
-    
+    st.caption("💡 **Tip for Emojis:** On a laptop/PC, press `Windows + .` to open the emoji picker! On a mobile phone, tap the emoji button on your keyboard.")
+
+    # File and Image Uploader attachment box
+    uploaded_attachment = st.file_uploader("📎 Attach an image or file", type=["png", "jpg", "jpeg", "pdf", "txt"], key="solo_uploader")
+
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if "file_data" in msg and msg["file_data"]:
+                if msg.get("file_type", "").startswith("image/"):
+                    st.image(msg["file_data"], width=250)
+                else:
+                    st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
     user_input = st.chat_input("Ask a study question... 💬")
 
-    if user_input:
-        st.session_state["messages"].append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+    if user_input or uploaded_attachment:
+        content_to_send = user_input if user_input else "Sent an attachment."
+        file_bytes_str = ""
+        file_type = ""
+        file_name = ""
 
-        if detect_harmful_keywords(user_input):
+        if uploaded_attachment:
+            file_bytes = uploaded_attachment.read()
+            file_bytes_str = base64.b64encode(file_bytes).decode("utf-8")
+            file_type = uploaded_attachment.type
+            file_name = uploaded_attachment.name
+            if file_type.startswith("image/"):
+                content_to_send = f"[Attached Image: {file_name}]\n{content_to_send}"
+            else:
+                content_to_send = f"[Attached File: {file_name}]\n{content_to_send}"
+
+        msg_payload = {
+            "role": "user",
+            "content": content_to_send,
+            "file_data": f"data:{file_type};base64,{file_bytes_str}" if uploaded_attachment else "",
+            "file_type": file_type,
+            "file_name": file_name
+        }
+
+        st.session_state["messages"].append(msg_payload)
+        with st.chat_message("user"):
+            st.markdown(content_to_send)
+            if uploaded_attachment and file_type.startswith("image/"):
+                st.image(f"data:{file_type};base64,{file_bytes_str}", width=250)
+
+        if detect_harmful_keywords(content_to_send):
             reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
             st.session_state["messages"].append({"role": "assistant", "content": reply})
             save_user_session()
             st.rerun()
 
-        if detect_foul_language(user_input):
+        if detect_foul_language(content_to_send):
             st.warning("⚠️ Inappropriate language flagged and sent to admin.")
 
-        chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
+        chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + [
+            {"role": m["role"], "content": m["content"]} for m in st.session_state["messages"]
+        ]
         
         with st.spinner("Exegesis AI is thinking..."):
             try:
