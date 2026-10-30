@@ -354,7 +354,6 @@ with st.sidebar:
     if user_name == "MoltenSpy" or current_admin_role in ["admin", "super_admin"]:
         st.subheader("👑 Admin Control Panel")
         
-        # --- Feedback Summary for MoltenSpy (Every 10 Feedbacks) ---
         feedbacks = list(db.collection("feedbacks").stream())
         if len(feedbacks) >= 10:
             st.markdown("### 📊 Feedback Summary (10+ Received)")
@@ -551,7 +550,6 @@ with st.sidebar:
         st.session_state["parent_verified"] = False
         st.rerun()
 
-    # --- Feedback Section (Above Delete Account Section) ---
     st.markdown("---")
     st.subheader("📝 Send Feedback")
     user_feedback_text = st.text_area("Share your feedback or suggestions:", key="sidebar_feedback_input")
@@ -567,7 +565,6 @@ with st.sidebar:
         else:
             st.error("Feedback cannot be empty.")
 
-    # --- Danger Zone (Delete Account Section) ---
     st.markdown("---")
     st.subheader("⚠️ Danger Zone")
     confirm_del = st.checkbox("Confirm Account Deletion", key="del_acc_chk")
@@ -738,27 +735,30 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             st.warning("⚠️ Inappropriate language flagged and sent to admin.")
 
         chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
-        try:
-            resp = requests.post(
-                url="https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {FULL_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "openrouter/free",
-                    "messages": chat_context
-                },
-                timeout=20
-            )
-            response_json = resp.json()
-            
-            if "choices" in response_json and len(response_json["choices"]) > 0:
-                ai_reply = response_json["choices"][0]["message"]["content"].strip()
-            else:
-                ai_reply = f"⚠️ Unable to generate a response right now. Details: {response_json.get('error', 'Unknown error')}"
-        except Exception as e:
-            ai_reply = f"⚠️ Connection error: {e}"
+        
+        # --- FIXED SPINNER & FASTER MODEL ---
+        with st.spinner("Exegesis AI is thinking..."):
+            try:
+                resp = requests.post(
+                    url="https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {FULL_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "meta-llama/llama-3-8b-instruct:free",
+                        "messages": chat_context
+                    },
+                    timeout=20
+                )
+                response_json = resp.json()
+                
+                if "choices" in response_json and len(response_json["choices"]) > 0:
+                    ai_reply = response_json["choices"][0]["message"]["content"].strip()
+                else:
+                    ai_reply = f"⚠️ Unable to generate a response right now. Details: {response_json.get('error', 'Unknown error')}"
+            except Exception as e:
+                ai_reply = f"⚠️ Connection error: {e}"
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
@@ -907,33 +907,34 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 })
                 
                 if "@exegesis" in group_input.lower():
-                    try:
-                        resp = requests.post(
-                            url="https://openrouter.ai/api/v1/chat/completions",
-                            headers={
-                                "Authorization": f"Bearer {FULL_API_KEY}",
-                                "Content-Type": "application/json"
-                            },
-                            json={
-                                "model": "openrouter/free",
-                                "messages": [
-                                    {"role": "system", "content": TUTOR_PROMPT},
-                                    {"role": "user", "content": group_input}
-                                ]
-                            },
-                            timeout=20
-                        )
-                        g_resp_json = resp.json()
-                        if "choices" in g_resp_json and len(g_resp_json["choices"]) > 0:
-                            ai_help = g_resp_json["choices"][0]["message"]["content"].strip()
-                        else:
-                            ai_help = "I'm having trouble connecting to my service right now!"
-                        
-                        db.collection("groups").document(selected_gid).collection("messages").add({
-                            "sender": "Exegesis AI 🤖",
-                            "text": ai_help,
-                            "time": datetime.now(timezone.utc).isoformat()
-                        })
-                    except Exception:
-                        pass
+                    with st.spinner("Exegesis AI is thinking..."):
+                        try:
+                            resp = requests.post(
+                                url="https://openrouter.ai/api/v1/chat/completions",
+                                headers={
+                                    "Authorization": f"Bearer {FULL_API_KEY}",
+                                    "Content-Type": "application/json"
+                                },
+                                json={
+                                    "model": "meta-llama/llama-3-8b-instruct:free",
+                                    "messages": [
+                                        {"role": "system", "content": TUTOR_PROMPT},
+                                        {"role": "user", "content": group_input}
+                                    ]
+                                },
+                                timeout=20
+                            )
+                            g_resp_json = resp.json()
+                            if "choices" in g_resp_json and len(g_resp_json["choices"]) > 0:
+                                ai_help = g_resp_json["choices"][0]["message"]["content"].strip()
+                            else:
+                                ai_help = "I'm having trouble connecting to my service right now!"
+                            
+                            db.collection("groups").document(selected_gid).collection("messages").add({
+                                "sender": "Exegesis AI 🤖",
+                                "text": ai_help,
+                                "time": datetime.now(timezone.utc).isoformat()
+                            })
+                        except Exception:
+                            pass
                 st.rerun()
