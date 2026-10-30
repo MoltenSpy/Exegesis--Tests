@@ -379,14 +379,16 @@ with st.sidebar:
                 st.markdown(f"👤 **{u_target}** | **Violations:** {v_count}")
                 st.caption(f"Last offense: \"{last_msg}\"")
                 
-                c1, c2, c3 = st.columns(3)
+                c1, c2, c3, c4 = st.columns(4)
                 with c1:
                     if st.button("⚠️ Warn", key=f"warn_{rep.id}"):
                         db.collection("user_warnings").document(u_target).set({
                             "message": "You have been flagged for using bad language or disrespecting family. Please refrain, or you may get suspended/banned.",
                             "time": datetime.now(timezone.utc).isoformat()
                         })
+                        db.collection("violations").document(rep.id).delete()
                         st.success(f"Warning sent to {u_target}!")
+                        st.rerun()
                 with c2:
                     if st.button("⏸️ Suspend", key=f"sus_{rep.id}"):
                         db.collection("account_actions").document(u_target).set({
@@ -394,7 +396,9 @@ with st.sidebar:
                             "reason": f"Repeated inappropriate language ({v_count} times).",
                             "timestamp": datetime.now(timezone.utc).isoformat()
                         })
+                        db.collection("violations").document(rep.id).delete()
                         st.success(f"Suspended {u_target}!")
+                        st.rerun()
                 with c3:
                     if st.button("🚫 Ban", key=f"ban_{rep.id}"):
                         db.collection("account_actions").document(u_target).set({
@@ -402,7 +406,14 @@ with st.sidebar:
                             "reason": f"Exceeded bad behavior limit ({v_count} violations).",
                             "timestamp": datetime.now(timezone.utc).isoformat()
                         })
+                        db.collection("violations").document(rep.id).delete()
                         st.success(f"Banned {u_target}!")
+                        st.rerun()
+                with c4:
+                    if st.button("❌ Dismiss", key=f"dismiss_{rep.id}"):
+                        db.collection("violations").document(rep.id).delete()
+                        st.success(f"Report dismissed for {u_target}!")
+                        st.rerun()
                 st.markdown("---")
         
         target_user = st.text_input("Target Username", key="admin_target")
@@ -736,7 +747,6 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 
         chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + st.session_state["messages"]
         
-        # --- FIXED SPINNER & FASTER MODEL ---
         with st.spinner("Exegesis AI is thinking..."):
             try:
                 resp = requests.post(
@@ -746,7 +756,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "meta-llama/llama-3-8b-instruct:free",
+                        "model": "openrouter/free",
                         "messages": chat_context
                     },
                     timeout=20
@@ -916,7 +926,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                     "Content-Type": "application/json"
                                 },
                                 json={
-                                    "model": "meta-llama/llama-3-8b-instruct:free",
+                                    "model": "openrouter/free",
                                     "messages": [
                                         {"role": "system", "content": TUTOR_PROMPT},
                                         {"role": "user", "content": group_input}
