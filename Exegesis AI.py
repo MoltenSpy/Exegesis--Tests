@@ -126,6 +126,7 @@ if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
 if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
 if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
 if "parent_verified" not in st.session_state: st.session_state["parent_verified"] = False
+if "attached_file" not in st.session_state: st.session_state["attached_file"] = None
 
 # =====================================================================
 # SECTION 7: ONBOARDING INTERFACE (LOGIN & REGISTRATION)
@@ -724,10 +725,26 @@ if user_role == "Teacher Portal":
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("What's on your mind today? 😊")
-    st.caption("💡 **Tip for Emojis:** On a laptop/PC, press `Windows + .` to open the emoji picker! On a mobile phone, tap the emoji button on your keyboard.")
+    st.caption("💡 **Emojis:** On laptop/PC press `Windows + .` to open emojis! On mobile, tap the emoji button on your keyboard.")
 
-    # File and Image Uploader attachment box
-    uploaded_attachment = st.file_uploader("📎 Attach an image or file", type=["png", "jpg", "jpeg", "pdf", "txt"], key="solo_uploader")
+    # --- Clickable `+` Menu Expander for Files & Images ---
+    with st.expander("➕ Attach File or Image"):
+        uploaded_popup = st.file_uploader("Upload an image or document", type=["png", "jpg", "jpeg", "pdf", "txt"], key="popup_uploader")
+        if uploaded_popup:
+            file_bytes = uploaded_popup.read()
+            file_bytes_str = base64.b64encode(file_bytes).decode("utf-8")
+            st.session_state["attached_file"] = {
+                "data": f"data:{uploaded_popup.type};base64,{file_bytes_str}",
+                "type": uploaded_popup.type,
+                "name": uploaded_popup.name
+            }
+            st.success(f"Attached: {uploaded_popup.name}")
+
+    if st.session_state.get("attached_file"):
+        st.info(f"📎 Ready to send: {st.session_state['attached_file']['name']}")
+        if st.button("❌ Remove Attachment"):
+            st.session_state["attached_file"] = None
+            st.rerun()
 
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
@@ -740,35 +757,36 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 
     user_input = st.chat_input("Ask a study question... 💬")
 
-    if user_input or uploaded_attachment:
+    if user_input or st.session_state.get("attached_file"):
         content_to_send = user_input if user_input else "Sent an attachment."
-        file_bytes_str = ""
-        file_type = ""
-        file_name = ""
+        file_data_str = ""
+        file_type_str = ""
+        file_name_str = ""
 
-        if uploaded_attachment:
-            file_bytes = uploaded_attachment.read()
-            file_bytes_str = base64.b64encode(file_bytes).decode("utf-8")
-            file_type = uploaded_attachment.type
-            file_name = uploaded_attachment.name
-            if file_type.startswith("image/"):
-                content_to_send = f"[Attached Image: {file_name}]\n{content_to_send}"
+        if st.session_state.get("attached_file"):
+            att = st.session_state["attached_file"]
+            file_data_str = att["data"]
+            file_type_str = att["type"]
+            file_name_str = att["name"]
+            if file_type_str.startswith("image/"):
+                content_to_send = f"[Attached Image: {file_name_str}]\n{content_to_send}"
             else:
-                content_to_send = f"[Attached File: {file_name}]\n{content_to_send}"
+                content_to_send = f"[Attached File: {file_name_str}]\n{content_to_send}"
+            st.session_state["attached_file"] = None
 
         msg_payload = {
             "role": "user",
             "content": content_to_send,
-            "file_data": f"data:{file_type};base64,{file_bytes_str}" if uploaded_attachment else "",
-            "file_type": file_type,
-            "file_name": file_name
+            "file_data": file_data_str,
+            "file_type": file_type_str,
+            "file_name": file_name_str
         }
 
         st.session_state["messages"].append(msg_payload)
         with st.chat_message("user"):
             st.markdown(content_to_send)
-            if uploaded_attachment and file_type.startswith("image/"):
-                st.image(f"data:{file_type};base64,{file_bytes_str}", width=250)
+            if file_data_str and file_type_str.startswith("image/"):
+                st.image(file_data_str, width=250)
 
         if detect_harmful_keywords(content_to_send):
             reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
