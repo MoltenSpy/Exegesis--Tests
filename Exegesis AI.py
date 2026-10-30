@@ -592,7 +592,7 @@ with st.sidebar:
 # SECTION 12: SECURITY & MODERATION ENGINES
 # =====================================================================
 def detect_harmful_keywords(text):
-    harmful_keywords = ["kill", "suicide", "harm", "hurt", "violence", "weapon", "gun", "die", "unalive"]
+    harmful_keywords = ["kill yourself", "commit suicide", "want to die"]
     found = any(re.search(r'\b' + re.escape(w) + r'\b', text.lower()) for w in harmful_keywords)
     if found and user_role == "Personal Account":
         db.collection("parent_alerts").add({
@@ -723,13 +723,13 @@ if user_role == "Teacher Portal":
 # =====================================================================
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
     st.title(f"Hello {st.session_state['full_name']}!")
-    st.subheader("What's on your mind today?")
+    st.subheader("What's on your mind today? 😊")
     
     for msg in st.session_state["messages"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input("Ask a study question...")
+    user_input = st.chat_input("Ask a study question... 💬")
 
     if user_input:
         st.session_state["messages"].append({"role": "user", "content": user_input})
@@ -905,7 +905,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 with st.chat_message(chat_role):
                     st.markdown(f"**{m['sender']}**: {m['text']}")
             
-            group_input = st.chat_input("Message group...", key="group_chat_input_box")
+            group_input = st.chat_input("Message group... 💬", key="group_chat_input_box")
             if group_input:
                 if detect_foul_language(group_input):
                     st.error("⚠️ Bad language detected and logged to Admin Panel!")
