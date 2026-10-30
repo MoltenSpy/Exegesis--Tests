@@ -742,10 +742,10 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
-    # --- Side Attach Button & Input Layout ---
-    col_btn, col_spacer = st.columns([1, 8])
+    # --- Side-by-side layout: ➕ Button next to chat input box ---
+    col_btn, col_input = st.columns([1, 11])
     with col_btn:
-        if st.button("➕ Attach"):
+        if st.button("➕"):
             st.session_state["show_uploader"] = not st.session_state["show_uploader"]
 
     if st.session_state["show_uploader"]:
