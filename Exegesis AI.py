@@ -65,6 +65,7 @@ def save_user_session():
             "messages": st.session_state.get("messages", []),
             "chat_history": st.session_state.get("chat_history", []),
             "friends": st.session_state.get("friends", []),
+            "nicknames": st.session_state.get("nicknames", {}),
             "account_type": st.session_state.get("account_type", ""),
             "parent_mode": st.session_state.get("parent_mode", ""),
             "profile_pic": st.session_state.get("profile_pic", ""),
@@ -107,7 +108,8 @@ TUTOR_PROMPT = (
     "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
     "1. For study questions or homework: Act as a helpful tutor using scaffolding. Never give the final answer right away. Provide up to 3 progressive hints to help the student learn.\n"
     "2. For general conversation or emotional support: Act like a warm, supportive friend. Listen, give encouragement, and keep the tone friendly and conversational.\n"
-    "3. If tagged as @exegesis in group chats, help solve doubts step-by-step."
+    "3. If tagged as @exegesis in group chats, help solve doubts step-by-step.\n"
+    "4. If someone asks who created you or asks for your creator's username, state strictly that the creator information is private and cannot be disclosed, while keeping in mind that Arnav Singh is the creator."
 )
 
 # =====================================================================
@@ -121,12 +123,14 @@ if "parent_mode" not in st.session_state: st.session_state["parent_mode"] = ""
 if "messages" not in st.session_state: st.session_state["messages"] = []
 if "chat_history" not in st.session_state: st.session_state["chat_history"] = []
 if "friends" not in st.session_state: st.session_state["friends"] = []
+if "nicknames" not in st.session_state: st.session_state["nicknames"] = {}
 if "active_group_id" not in st.session_state: st.session_state["active_group_id"] = None
 if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
 if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
 if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
 if "parent_verified" not in st.session_state: st.session_state["parent_verified"] = False
 if "attached_file" not in st.session_state: st.session_state["attached_file"] = None
+if "show_uploader" not in st.session_state: st.session_state["show_uploader"] = False
 
 # =====================================================================
 # SECTION 7: ONBOARDING INTERFACE (LOGIN & REGISTRATION)
@@ -209,6 +213,7 @@ if not st.session_state["logged_in"]:
                             "messages": [],
                             "chat_history": [],
                             "friends": [],
+                            "nicknames": {},
                             "account_type": acc_choice,
                             "parent_mode": parent_sub,
                             "school_name": school_name,
@@ -237,6 +242,7 @@ if not st.session_state["logged_in"]:
                         st.session_state["messages"] = user_data.get("messages", [])
                         st.session_state["chat_history"] = user_data.get("chat_history", [])
                         st.session_state["friends"] = user_data.get("friends", [])
+                        st.session_state["nicknames"] = user_data.get("nicknames", {})
                         st.session_state["user_city"] = user_data.get("user_city", "London")
                         st.session_state["profile_pic"] = user_data.get("profile_pic", "")
                         st.session_state["logged_in"] = True
@@ -727,9 +733,27 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
     st.subheader("What's on your mind today? 😊")
     st.caption("💡 **Emojis:** On laptop/PC press `Windows + .` to open emojis! On mobile, tap the emoji button on your keyboard.")
 
-    # --- Clickable `+` Menu Expander for Files & Images ---
-    with st.expander("➕ Attach File or Image"):
-        uploaded_popup = st.file_uploader("Upload an image or document", type=["png", "jpg", "jpeg", "pdf", "txt"], key="popup_uploader")
+    for msg in st.session_state["messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if "file_data" in msg and msg["file_data"]:
+                if msg.get("file_type", "").startswith("image/"):
+                    st.image(msg["file_data"], width=250)
+                else:
+                    st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
+
+    # --- Side Attach Button & Input Layout ---
+    col_btn, col_spacer = st.columns([1, 8])
+    with col_btn:
+        if st.button("➕ Attach"):
+            st.session_state["show_uploader"] = not st.session_state["show_uploader"]
+
+    if st.session_state["show_uploader"]:
+        uploaded_popup = st.file_uploader(
+            "Upload image, document, Word, or OpenOffice file", 
+            type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "odt"], 
+            key="popup_uploader"
+        )
         if uploaded_popup:
             file_bytes = uploaded_popup.read()
             file_bytes_str = base64.b64encode(file_bytes).decode("utf-8")
@@ -739,21 +763,14 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                 "name": uploaded_popup.name
             }
             st.success(f"Attached: {uploaded_popup.name}")
+            st.session_state["show_uploader"] = False
+            st.rerun()
 
     if st.session_state.get("attached_file"):
         st.info(f"📎 Ready to send: {st.session_state['attached_file']['name']}")
         if st.button("❌ Remove Attachment"):
             st.session_state["attached_file"] = None
             st.rerun()
-
-    for msg in st.session_state["messages"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if "file_data" in msg and msg["file_data"]:
-                if msg.get("file_type", "").startswith("image/"):
-                    st.image(msg["file_data"], width=250)
-                else:
-                    st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
     user_input = st.chat_input("Ask a study question... 💬")
 
@@ -829,12 +846,12 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
         st.rerun()
 
 # =====================================================================
-# SECTION 16: COLLABORATIVE STUDY GROUPS & @exegesis INTEGRATION
+# SECTION 16: COLLABORATIVE STUDY GROUPS & ROBLOX-STYLE NICKNAMES
 # =====================================================================
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
     st.title(f"Hello {st.session_state['full_name']}! 👥 Friends & Study Groups")
     
-    tab1, tab2, tab3 = st.tabs(["Friend Requests", "Create Group Chat", "Active Group Chat Room"])
+    tab1, tab2, tab3 = st.tabs(["Friend Requests & Nicknames", "Create Group Chat", "Active Group Chat Room"])
     
     with tab1:
         st.subheader("Add Friend (Requires Full Name)")
@@ -851,21 +868,34 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 })
                 st.success("Friend request sent!")
                 
-        st.subheader("Your Friends")
+        st.subheader("Your Friends & Roblox-Style Nicknames 🏷️")
         accepted_reqs = db.collection("friend_requests").where("status", "==", "accepted").stream()
-        friend_cols = st.columns(4)
+        friend_cols = st.columns(3)
         idx = 0
         for r in accepted_reqs:
             r_data = r.to_dict()
             if r_data["from_fullname"] == st.session_state["full_name"] or r_data["to_fullname"] == st.session_state["full_name"]:
-                friend_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
-                with friend_cols[idx % 4]:
-                    st.markdown(f"👤 **{friend_name}**")
-                    confirm_unfriend = st.checkbox(f"Confirm Unfriend {friend_name}", key=f"chk_unfriend_{r.id}")
-                    if st.button(f"Unfriend {friend_name}", key=f"unfriend_btn_{r.id}"):
+                friend_real_name = r_data["to_fullname"] if r_data["from_fullname"] == st.session_state["full_name"] else r_data["from_fullname"]
+                friend_nick = st.session_state["nicknames"].get(friend_real_name, friend_real_name)
+                
+                with friend_cols[idx % 3]:
+                    st.markdown(f"👤 **{friend_nick}**")
+                    st.caption(f"Real Name: @{friend_real_name}")
+                    
+                    with st.expander("🏷️ Edit Nickname"):
+                        new_nick = st.text_input("Set Nickname", value=friend_nick, key=f"nick_input_{r.id}")
+                        if st.button("Save Nickname", key=f"save_nick_{r.id}"):
+                            if new_nick.strip():
+                                st.session_state["nicknames"][friend_real_name] = new_nick.strip()
+                                save_user_session()
+                                st.success("Nickname updated!")
+                                st.rerun()
+
+                    confirm_unfriend = st.checkbox(f"Confirm Unfriend", key=f"chk_unfriend_{r.id}")
+                    if st.button(f"Unfriend", key=f"unfriend_btn_{r.id}"):
                         if confirm_unfriend:
                             db.collection("friend_requests").document(r.id).delete()
-                            st.success(f"Unfriended {friend_name}.")
+                            st.success(f"Unfriended {friend_real_name}.")
                             st.rerun()
                         else:
                             st.error("Please check the confirmation box first.")
@@ -955,9 +985,10 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 m = msg.to_dict()
                 is_me = (m['sender'] == st.session_state["full_name"])
                 chat_role = "user" if is_me else "assistant"
+                sender_display = st.session_state["nicknames"].get(m['sender'], m['sender'])
                 
                 with st.chat_message(chat_role):
-                    st.markdown(f"**{m['sender']}**: {m['text']}")
+                    st.markdown(f"**{sender_display}**: {m['text']}")
             
             group_input = st.chat_input("Message group... 💬", key="group_chat_input_box")
             if group_input:
