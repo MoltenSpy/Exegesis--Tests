@@ -141,7 +141,6 @@ if "parent_verified" not in st.session_state: st.session_state["parent_verified"
 # =====================================================================
 # SECTION 7: ONBOARDING INTERFACE (LOGIN & REGISTRATION)
 # =====================================================================
-@st.fragment
 def render_auth_screen():
     st.title("=== Welcome to Exegesis AI ===")
     auth_mode = st.radio("Choose Action", ["Log In", "Create Account"], horizontal=True)
@@ -762,7 +761,6 @@ if user_role == "Teacher Portal":
 # =====================================================================
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
-@st.fragment
 def render_solo_study_chat():
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("What's on your mind today? 😊")
@@ -779,7 +777,7 @@ def render_solo_study_chat():
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
-    # Native Streamlit chat input with built-in file attachment (ChatGPT & Gemini style)
+    # Native Streamlit chat input pinned at the bottom of the viewport
     prompt = st.chat_input(
         "Ask a study question... 💬",
         accept_file=True,
@@ -863,7 +861,6 @@ def render_solo_study_chat():
 # =====================================================================
 # SECTION 16: COLLABORATIVE STUDY GROUPS & ROBLOX-STYLE NICKNAMES
 # =====================================================================
-@st.fragment
 def render_group_study_chats():
     st.title(f"Hello {st.session_state['full_name']}! 👥 Friends & Study Groups")
     
