@@ -856,7 +856,7 @@ def render_solo_study_chat():
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "openrouter/free",
+                        "model": "google/gemma-2-9b-it:free",
                         "messages": chat_context
                     },
                     timeout=20
