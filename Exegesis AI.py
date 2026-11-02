@@ -762,9 +762,10 @@ def render_solo_study_chat():
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
+    # Bottom sticky input layout grouping the '+' toggle and the chat input together
     col_btn, col_input = st.columns([1, 11])
     with col_btn:
-        if st.button("➕"):
+        if st.button("➕", use_container_width=True):
             st.session_state["show_uploader"] = not st.session_state["show_uploader"]
 
     if st.session_state["show_uploader"]:
