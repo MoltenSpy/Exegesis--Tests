@@ -61,21 +61,24 @@ def get_user_doc(username):
 
 
 def save_user_session():
-    """Persists current user profile data and active session state to Firestore."""
+    """Persists current user profile data and active session state to Firestore safely."""
     if st.session_state.get("logged_in") and st.session_state.get("user_name"):
-        doc_ref = db.collection("users").document(st.session_state["user_name"])
-        doc_ref.set({
-            "full_name": st.session_state.get("full_name", ""),
-            "messages": st.session_state.get("messages", []),
-            "chat_history": st.session_state.get("chat_history", []),
-            "friends": st.session_state.get("friends", []),
-            "nicknames": st.session_state.get("nicknames", {}),
-            "account_type": st.session_state.get("account_type", ""),
-            "parent_mode": st.session_state.get("parent_mode", ""),
-            "profile_pic": st.session_state.get("profile_pic", ""),
-            "user_city": st.session_state.get("user_city", "London"),
-            "last_active": datetime.now(timezone.utc).isoformat()
-        }, merge=True)
+        try:
+            doc_ref = db.collection("users").document(st.session_state["user_name"])
+            doc_ref.set({
+                "full_name": st.session_state.get("full_name", ""),
+                "messages": st.session_state.get("messages", []),
+                "chat_history": st.session_state.get("chat_history", []),
+                "friends": st.session_state.get("friends", []),
+                "nicknames": st.session_state.get("nicknames", {}),
+                "account_type": st.session_state.get("account_type", ""),
+                "parent_mode": st.session_state.get("parent_mode", ""),
+                "profile_pic": st.session_state.get("profile_pic", ""),
+                "user_city": st.session_state.get("user_city", "London"),
+                "last_active": datetime.now(timezone.utc).isoformat()
+            }, merge=True)
+        except Exception:
+            pass
 
 
 # =====================================================================
@@ -760,7 +763,6 @@ if user_role == "Teacher Portal":
 # =====================================================================
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
-@st.fragment
 def render_solo_study_chat():
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("What's on your mind today? 😊")
@@ -798,8 +800,8 @@ def render_solo_study_chat():
             file_obj = uploaded_files[0]
             file_bytes = file_obj.read()
             file_bytes_str = base64.b64encode(file_bytes).decode("utf-8")
-            file_type_str = file_obj.type
-            file_name_str = file_obj.name
+            file_type_str = str(file_obj.type or "")
+            file_name_str = str(file_obj.name or "file")
             file_data_str = f"data:{file_type_str};base64,{file_bytes_str}"
             
             if file_type_str.startswith("image/"):
@@ -809,17 +811,17 @@ def render_solo_study_chat():
             else:
                 user_text = f"[Attached File: {file_name_str}]\n{user_text}"
 
-        content_to_send = user_text if user_text else "Sent an attachment."
+        content_to_send = str(user_text if user_text else "Sent an attachment.")
 
         msg_payload = {
             "role": "user",
             "content": content_to_send,
-            "file_data": file_data_str,
-            "file_type": file_type_str,
-            "file_name": file_name_str
+            "file_data": str(file_data_str),
+            "file_type": str(file_type_str),
+            "file_name": str(file_name_str)
         }
 
-        # Append and show user message immediately without flashing
+        # Append and show user message immediately
         st.session_state["messages"].append(msg_payload)
         with st.chat_message("user", avatar=st.session_state.get("profile_pic", None)):
             st.markdown(content_to_send)
@@ -833,7 +835,7 @@ def render_solo_study_chat():
 
         if detect_harmful_keywords(content_to_send):
             reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
-            st.session_state["messages"].append({"role": "assistant", "content": reply})
+            st.session_state["messages"].append({"role": "assistant", "content": str(reply)})
             save_user_session()
             return
 
@@ -841,7 +843,7 @@ def render_solo_study_chat():
             st.warning("⚠️ Inappropriate language flagged and sent to admin.")
 
         chat_context = [{"role": "system", "content": TUTOR_PROMPT}] + [
-            {"role": m["role"], "content": m["content"]} for m in st.session_state["messages"]
+            {"role": str(m["role"]), "content": str(m["content"])} for m in st.session_state["messages"]
         ]
         
         # Thinking spinner indicator
@@ -862,7 +864,7 @@ def render_solo_study_chat():
                 response_json = resp.json()
                 
                 if "choices" in response_json and len(response_json["choices"]) > 0:
-                    ai_reply = response_json["choices"][0]["message"]["content"].strip()
+                    ai_reply = str(response_json["choices"][0]["message"]["content"].strip())
                 else:
                     ai_reply = f"⚠️ Unable to generate a response right now. Details: {response_json.get('error', 'Unknown error')}"
             except Exception as e:
@@ -870,7 +872,6 @@ def render_solo_study_chat():
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
-        st.rerun()
 
 
 # =====================================================================
@@ -1070,7 +1071,7 @@ def render_group_study_chats():
                         except Exception:
                             pass
 
-# Execute active workspace mode smoothly
+# Execute active workspace mode
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
     render_solo_study_chat()
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
