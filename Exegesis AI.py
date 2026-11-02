@@ -136,7 +136,6 @@ if "profile_pic" not in st.session_state: st.session_state["profile_pic"] = ""
 if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
 if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
 if "parent_verified" not in st.session_state: st.session_state["parent_verified"] = False
-if "attached_file" not in st.session_state: st.session_state["attached_file"] = None
 
 
 # =====================================================================
@@ -780,47 +779,35 @@ def render_solo_study_chat():
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
-    # File attachment uploader section
-    if st.checkbox("📎 Attach File or Image", key="toggle_uploader"):
-        uploaded_popup = st.file_uploader(
-            "Upload image, document, Word, or OpenOffice file", 
-            type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "odt"], 
-            key="popup_uploader"
-        )
-        if uploaded_popup:
-            file_bytes = uploaded_popup.read()
-            file_bytes_str = base64.b64encode(file_bytes).decode("utf-8")
-            st.session_state["attached_file"] = {
-                "data": f"data:{uploaded_popup.type};base64,{file_bytes_str}",
-                "type": uploaded_popup.type,
-                "name": uploaded_popup.name
-            }
-            st.success(f"Attached: {uploaded_popup.name}")
+    # Native Streamlit chat input with built-in file attachment (ChatGPT & Gemini style)
+    prompt = st.chat_input(
+        "Ask a study question... 💬",
+        accept_file=True,
+        file_type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "odt"]
+    )
 
-    if st.session_state.get("attached_file"):
-        st.info(f"📎 Ready to send: {st.session_state['attached_file']['name']}")
-        if st.button("❌ Remove Attachment"):
-            st.session_state["attached_file"] = None
-
-    # Native Streamlit chat input pinned cleanly at the bottom
-    user_input = st.chat_input("Ask a study question... 💬")
-
-    if user_input or st.session_state.get("attached_file"):
-        content_to_send = user_input if user_input else "Sent an attachment."
+    if prompt:
+        user_text = prompt.text if hasattr(prompt, "text") else str(prompt)
+        uploaded_files = prompt.files if hasattr(prompt, "files") else []
+        
         file_data_str = ""
         file_type_str = ""
         file_name_str = ""
 
-        if st.session_state.get("attached_file"):
-            att = st.session_state["attached_file"]
-            file_data_str = att["data"]
-            file_type_str = att["type"]
-            file_name_str = att["name"]
+        if uploaded_files:
+            file_obj = uploaded_files[0]
+            file_bytes = file_obj.read()
+            file_bytes_str = base64.b64encode(file_bytes).decode("utf-8")
+            file_type_str = file_obj.type
+            file_name_str = file_obj.name
+            file_data_str = f"data:{file_type_str};base64,{file_bytes_str}"
+            
             if file_type_str.startswith("image/"):
-                content_to_send = f"[Attached Image: {file_name_str}]\n{content_to_send}"
+                user_text = f"[Attached Image: {file_name_str}]\n{user_text}"
             else:
-                content_to_send = f"[Attached File: {file_name_str}]\n{content_to_send}"
-            st.session_state["attached_file"] = None
+                user_text = f"[Attached File: {file_name_str}]\n{user_text}"
+
+        content_to_send = user_text if user_text else "Sent an attachment."
 
         msg_payload = {
             "role": "user",
@@ -870,6 +857,7 @@ def render_solo_study_chat():
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
+        st.rerun()
 
 
 # =====================================================================
