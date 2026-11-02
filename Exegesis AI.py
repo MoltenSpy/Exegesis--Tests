@@ -112,10 +112,11 @@ def get_weather(city_name):
 # =====================================================================
 TUTOR_PROMPT = (
     "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
-    "1. For study questions or homework: Act as a helpful tutor using scaffolding. Never give all hints or the final answer right away. Provide STRICTLY ONLY 1 short hint at a time. Ask the student if they would like the next hint or if they want to try answering first. You can provide up to 3 progressive hints total, one per response turn.\n"
-    "2. For general conversation or emotional support: Act like a warm, supportive friend. Listen, give encouragement, and keep the tone friendly and conversational.\n"
-    "3. If tagged as @exegesis in group chats, help solve doubts step-by-step with 1 hint at a time.\n"
-    "4. If someone asks who created you or asks for your creator's username, state strictly that the creator information is private and cannot be disclosed, while keeping in mind that Arnav Singh is the creator."
+    "1. For study questions, homework, or reports: Act as a helpful tutor using scaffolding. If a user asks you to generate a whole report, essay, or complete assignment, you must say: 'I will not generate the whole thing, but I can help you write it!' Then provide helpful information, outlines, and points to expand upon.\n"
+    "2. When reviewing uploaded images, videos, documents, Word files, or presentations, review them and give constructive feedback or suggest improvements without rewriting the whole thing.\n"
+    "3. For general conversation or emotional support: Act like a warm, supportive friend.\n"
+    "4. If tagged as @exegesis in group chats, help solve doubts step-by-step with guidance rather than full answers.\n"
+    "5. If someone asks who created you or asks for your creator's username, state strictly that the creator information is private and cannot be disclosed, while keeping in mind that Arnav Singh is the creator."
 )
 
 
@@ -245,7 +246,7 @@ def render_auth_screen():
                         st.session_state["full_name"] = user_data.get("full_name", clean_name)
                         st.session_state["account_type"] = user_data.get("account_type", "Student Portal")
                         st.session_state["parent_mode"] = user_data.get("parent_mode", "")
-                        st.session_state["messages"] = []  # Start a fresh new chat on login!
+                        st.session_state["messages"] = []  
                         st.session_state["chat_history"] = user_data.get("chat_history", [])
                         st.session_state["friends"] = user_data.get("friends", [])
                         st.session_state["nicknames"] = user_data.get("nicknames", {})
@@ -540,7 +541,6 @@ with st.sidebar:
             save_user_session()
             st.rerun()
 
-        # Chat History inside a private drop-down box (expander)
         with st.expander("💬 Solo Chat History"):
             if len(st.session_state["chat_history"]) > 3:
                 if st.button("🗑️ Clear All Chats", use_container_width=True):
@@ -774,14 +774,16 @@ def render_solo_study_chat():
             if "file_data" in msg and msg["file_data"]:
                 if msg.get("file_type", "").startswith("image/"):
                     st.image(msg["file_data"], width=250)
+                elif msg.get("file_type", "").startswith("video/"):
+                    st.video(msg["file_data"])
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
-    # Native Streamlit chat input pinned at the bottom of the viewport
+    # Native Streamlit chat input pinned at the bottom with image, video, and doc support
     prompt = st.chat_input(
         "Ask a study question... 💬",
         accept_file=True,
-        file_type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "odt"]
+        file_type=["png", "jpg", "jpeg", "mp4", "mov", "avi", "pdf", "txt", "docx", "odt"]
     )
 
     if prompt:
@@ -802,6 +804,8 @@ def render_solo_study_chat():
             
             if file_type_str.startswith("image/"):
                 user_text = f"[Attached Image: {file_name_str}]\n{user_text}"
+            elif file_type_str.startswith("video/"):
+                user_text = f"[Attached Video: {file_name_str}]\n{user_text}"
             else:
                 user_text = f"[Attached File: {file_name_str}]\n{user_text}"
 
@@ -815,7 +819,17 @@ def render_solo_study_chat():
             "file_name": file_name_str
         }
 
+        # Append and show user message immediately without full reload flash
         st.session_state["messages"].append(msg_payload)
+        with st.chat_message("user", avatar=st.session_state.get("profile_pic", None)):
+            st.markdown(content_to_send)
+            if file_data_str:
+                if file_type_str.startswith("image/"):
+                    st.image(file_data_str, width=250)
+                elif file_type_str.startswith("video/"):
+                    st.video(file_data_str)
+                else:
+                    st.info(f"📎 Attached file: {file_name_str}")
 
         if detect_harmful_keywords(content_to_send):
             reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
