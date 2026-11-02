@@ -113,7 +113,7 @@ def get_weather(city_name):
 TUTOR_PROMPT = (
     "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
     "1. For study questions, homework, or reports: Act as a helpful tutor using scaffolding. If a user asks you to generate a whole report, essay, or complete assignment, you must say: 'I will not generate the whole thing, but I can help you write it!' Then provide helpful information, outlines, and points to expand upon.\n"
-    "2. When reviewing uploaded images, videos, documents, Word files, or presentations, review them and give constructive feedback or suggest improvements without rewriting the whole thing.\n"
+    "2. When reviewing uploaded images, videos, documents, Word files, or presentations, observe everything visible and detail what you notice. For example, if an image resembles an album cover like The Weeknd's 'Beauty Behind the Madness', notice key features and say something like: 'It looks like this could be related to The Weeknd, but it's not clearly visible here' while describing everything else you spot in detail.\n"
     "3. For general conversation or emotional support: Act like a warm, supportive friend.\n"
     "4. If tagged as @exegesis in group chats, help solve doubts step-by-step with guidance rather than full answers.\n"
     "5. If someone asks who created you or asks for your creator's username, state strictly that the creator information is private and cannot be disclosed, while keeping in mind that Arnav Singh is the creator."
@@ -246,13 +246,26 @@ def render_auth_screen():
                         st.session_state["full_name"] = user_data.get("full_name", clean_name)
                         st.session_state["account_type"] = user_data.get("account_type", "Student Portal")
                         st.session_state["parent_mode"] = user_data.get("parent_mode", "")
-                        st.session_state["messages"] = []  
-                        st.session_state["chat_history"] = user_data.get("chat_history", [])
+                        
+                        # Save old active messages into chat history if they exist before starting clean
+                        existing_msgs = user_data.get("messages", [])
+                        existing_history = user_data.get("chat_history", [])
+                        if existing_msgs:
+                            chat_title = existing_msgs[0]["content"][:25] + "..."
+                            existing_history.append({
+                                "title": chat_title,
+                                "messages": existing_msgs,
+                                "time": datetime.now(timezone.utc).isoformat()
+                            })
+
+                        st.session_state["messages"] = []
+                        st.session_state["chat_history"] = existing_history
                         st.session_state["friends"] = user_data.get("friends", [])
                         st.session_state["nicknames"] = user_data.get("nicknames", {})
                         st.session_state["user_city"] = user_data.get("user_city", "London")
                         st.session_state["profile_pic"] = user_data.get("profile_pic", "")
                         st.session_state["logged_in"] = True
+                        save_user_session()
                         st.rerun()
                     else:
                         st.error("Invalid username or password.")
