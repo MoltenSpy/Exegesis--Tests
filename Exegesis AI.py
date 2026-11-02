@@ -240,7 +240,7 @@ def render_auth_screen():
                         st.session_state["full_name"] = user_data.get("full_name", clean_name)
                         st.session_state["account_type"] = user_data.get("account_type", "Student Portal")
                         st.session_state["parent_mode"] = user_data.get("parent_mode", "")
-                        st.session_state["messages"] = user_data.get("messages", [])
+                        st.session_state["messages"] = []  # Start a fresh new chat on login!
                         st.session_state["chat_history"] = user_data.get("chat_history", [])
                         st.session_state["friends"] = user_data.get("friends", [])
                         st.session_state["nicknames"] = user_data.get("nicknames", {})
@@ -531,26 +531,26 @@ with st.sidebar:
             save_user_session()
             st.rerun()
 
-        st.subheader("💬 Solo Chat History")
-        
-        if len(st.session_state["chat_history"]) > 3:
-            if st.button("🗑️ Clear All Chats", use_container_width=True):
-                st.session_state["chat_history"] = []
-                save_user_session()
-                st.success("All chat history cleared!")
-                st.rerun()
-
-        for i, chat in enumerate(st.session_state["chat_history"]):
-            cols = st.columns([4, 1])
-            with cols[0]:
-                if st.button(chat["title"], key=f"history_{i}"):
-                    st.session_state["messages"] = chat["messages"]
-                    st.rerun()
-            with cols[1]:
-                if st.button("❌", key=f"del_chat_{i}"):
-                    st.session_state["chat_history"].pop(i)
+        # Chat History inside a private drop-down box (expander)
+        with st.expander("💬 Solo Chat History"):
+            if len(st.session_state["chat_history"]) > 3:
+                if st.button("🗑️ Clear All Chats", use_container_width=True):
+                    st.session_state["chat_history"] = []
                     save_user_session()
+                    st.success("All chat history cleared!")
                     st.rerun()
+
+            for i, chat in enumerate(st.session_state["chat_history"]):
+                cols = st.columns([4, 1])
+                with cols[0]:
+                    if st.button(chat["title"], key=f"history_{i}"):
+                        st.session_state["messages"] = chat["messages"]
+                        st.rerun()
+                with cols[1]:
+                    if st.button("❌", key=f"del_chat_{i}"):
+                        st.session_state["chat_history"].pop(i)
+                        save_user_session()
+                        st.rerun()
 
     elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
         st.subheader("🟣 Group Chats")
@@ -1004,12 +1004,10 @@ def render_group_study_chats():
                 chat_role = "user" if is_me else "assistant"
                 sender_display = st.session_state["nicknames"].get(m['sender'], m['sender'])
                 
-                # Fetch sender's profile picture if it's the current user, or check their profile doc
                 msg_avatar = None
                 if is_me:
                     msg_avatar = st.session_state.get("profile_pic", None)
                 else:
-                    # Look up sender's profile pic from users collection if available
                     try:
                         u_ref, u_snap = get_user_doc(m.get('sender_username', ''))
                         if u_snap.exists:
