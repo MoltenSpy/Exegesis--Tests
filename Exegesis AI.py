@@ -19,6 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 # =====================================================================
 # SECTION 1: SECURE API SECRETS & CONFIGURATION
 # =====================================================================
@@ -27,6 +28,7 @@ if "OPENROUTER_API_KEY" in st.secrets:
 else:
     st.error("🔒 API Key Missing! Please add 'OPENROUTER_API_KEY' to your Streamlit Secrets configuration dashboard.")
     st.stop()
+
 
 # =====================================================================
 # SECTION 2: FIREBASE CLOUD DATABASE CONNECTION
@@ -47,6 +49,7 @@ except Exception as e:
     st.error("⚠️ Firebase connection error. Please verify your database credentials in Streamlit Secrets.")
     st.stop()
 
+
 # =====================================================================
 # SECTION 3: CORE DATABASE & SESSION UTILITY FUNCTIONS
 # =====================================================================
@@ -55,6 +58,7 @@ def get_user_doc(username):
     doc_ref = db.collection("users").document(username)
     doc = doc_ref.get()
     return doc_ref, doc
+
 
 def save_user_session():
     """Persists current user profile data and active session state to Firestore."""
@@ -72,6 +76,7 @@ def save_user_session():
             "user_city": st.session_state.get("user_city", "London"),
             "last_active": datetime.now(timezone.utc).isoformat()
         }, merge=True)
+
 
 # =====================================================================
 # SECTION 4: WEATHER API INTEGRATION
@@ -101,6 +106,7 @@ def get_weather(city_name):
         pass
     return "Unable to fetch weather data."
 
+
 # =====================================================================
 # SECTION 5: AI SYSTEM PROMPTS & SCAFFOLDING GUIDELINES
 # =====================================================================
@@ -111,6 +117,7 @@ TUTOR_PROMPT = (
     "3. If tagged as @exegesis in group chats, help solve doubts step-by-step with 1 hint at a time.\n"
     "4. If someone asks who created you or asks for your creator's username, state strictly that the creator information is private and cannot be disclosed, while keeping in mind that Arnav Singh is the creator."
 )
+
 
 # =====================================================================
 # SECTION 6: SESSION STATE INITIALIZATION
@@ -130,7 +137,7 @@ if "user_city" not in st.session_state: st.session_state["user_city"] = "London"
 if "app_mode" not in st.session_state: st.session_state["app_mode"] = "Solo Study / AI Chat"
 if "parent_verified" not in st.session_state: st.session_state["parent_verified"] = False
 if "attached_file" not in st.session_state: st.session_state["attached_file"] = None
-if "show_uploader" not in st.session_state: st.session_state["show_uploader"] = False
+
 
 # =====================================================================
 # SECTION 7: ONBOARDING INTERFACE (LOGIN & REGISTRATION)
@@ -263,6 +270,7 @@ if not st.session_state["logged_in"]:
 user_name = st.session_state["user_name"]
 user_role = st.session_state["account_type"]
 
+
 # =====================================================================
 # SECTION 8: AUTOMATED BIRTHDAY & 18TH MILESTONE CHECKERS
 # =====================================================================
@@ -290,6 +298,7 @@ if user_doc_snapshot.exists:
                         })
                 user_doc_ref.set({"turned_18_notified": True}, merge=True)
 
+
 # =====================================================================
 # SECTION 9: MODERATION & ACCOUNT RESTRICTION ENFORCEMENT
 # =====================================================================
@@ -314,6 +323,7 @@ if action_doc.exists:
         st.session_state["logged_in"] = False
         st.rerun()
     st.stop()
+
 
 # =====================================================================
 # SECTION 10: PARENT LINK VERIFICATION PROTOCOLS
@@ -348,6 +358,7 @@ if user_role == "Student Portal":
             st.warning("Parent request declined. The parent account has been removed.")
             st.rerun()
         st.stop()
+
 
 # =====================================================================
 # SECTION 11: SIDEBAR NAVIGATION & ADMIN CONTROLS
@@ -613,6 +624,7 @@ with st.sidebar:
         else:
             st.error("Please check the confirmation box first.")
 
+
 # =====================================================================
 # SECTION 12: SECURITY & MODERATION ENGINES
 # =====================================================================
@@ -626,6 +638,7 @@ def detect_harmful_keywords(text):
             "time": datetime.now(timezone.utc).isoformat()
         })
     return found
+
 
 def detect_foul_language(text):
     foul_words = ["badword1", "badword2", "idiot", "stupid", "mother", "father", "parents", "trash", "hate"]
@@ -642,6 +655,7 @@ def detect_foul_language(text):
         })
     return found
 
+
 def check_chat_suspension():
     sus_ref = db.collection("suspensions").document(user_name)
     sus_doc = sus_ref.get()
@@ -653,6 +667,7 @@ def check_chat_suspension():
         else:
             sus_ref.delete()
     return False
+
 
 # =====================================================================
 # SECTION 13: PARENT PORTAL DASHBOARD VIEW
@@ -713,6 +728,7 @@ if user_role == "Parent Portal":
         st.markdown("- Listen actively and without judgment.\n- Reassure them of your unconditional support.\n- Connect with professional counseling or guidance if needed.")
     st.stop()
 
+
 # =====================================================================
 # SECTION 14: TEACHER PORTAL DASHBOARD VIEW
 # =====================================================================
@@ -743,6 +759,7 @@ if user_role == "Teacher Portal":
                 st.success("Task assigned successfully!")
     st.stop()
 
+
 # =====================================================================
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
@@ -752,7 +769,7 @@ def render_solo_study_chat():
     st.subheader("What's on your mind today? 😊")
     st.caption("💡 **Emojis:** On laptop/PC press `Windows + .` to open emojis! On mobile, tap the emoji button on your keyboard.")
 
-    # 1. Render existing messages FIRST so they stay above the input box
+    # Render chat message history
     for msg in st.session_state["messages"]:
         avatar_img = st.session_state.get("profile_pic", None) if msg["role"] == "user" else None
         with st.chat_message(msg["role"], avatar=avatar_img):
@@ -763,13 +780,8 @@ def render_solo_study_chat():
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
-    # 2. Attachment toggle and uploader right above the chat input
-    col_btn, col_input_placeholder = st.columns([1, 11])
-    with col_btn:
-        if st.button("➕", use_container_width=True):
-            st.session_state["show_uploader"] = not st.session_state["show_uploader"]
-
-    if st.session_state["show_uploader"]:
+    # File attachment uploader section
+    if st.checkbox("📎 Attach File or Image", key="toggle_uploader"):
         uploaded_popup = st.file_uploader(
             "Upload image, document, Word, or OpenOffice file", 
             type=["png", "jpg", "jpeg", "pdf", "txt", "docx", "odt"], 
@@ -784,16 +796,13 @@ def render_solo_study_chat():
                 "name": uploaded_popup.name
             }
             st.success(f"Attached: {uploaded_popup.name}")
-            st.session_state["show_uploader"] = False
-            st.rerun()
 
     if st.session_state.get("attached_file"):
         st.info(f"📎 Ready to send: {st.session_state['attached_file']['name']}")
         if st.button("❌ Remove Attachment"):
             st.session_state["attached_file"] = None
-            st.rerun()
 
-    # 3. Chat input stays pinned at the bottom of the page
+    # Native Streamlit chat input pinned cleanly at the bottom
     user_input = st.chat_input("Ask a study question... 💬")
 
     if user_input or st.session_state.get("attached_file"):
@@ -827,7 +836,7 @@ def render_solo_study_chat():
             reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
             st.session_state["messages"].append({"role": "assistant", "content": reply})
             save_user_session()
-            st.rerun()
+            return
 
         if detect_foul_language(content_to_send):
             st.warning("⚠️ Inappropriate language flagged and sent to admin.")
@@ -861,7 +870,7 @@ def render_solo_study_chat():
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
-        st.rerun()
+
 
 # =====================================================================
 # SECTION 16: COLLABORATIVE STUDY GROUPS & ROBLOX-STYLE NICKNAMES
