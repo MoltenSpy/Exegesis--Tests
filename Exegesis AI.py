@@ -752,6 +752,7 @@ def render_solo_study_chat():
     st.subheader("What's on your mind today? 😊")
     st.caption("💡 **Emojis:** On laptop/PC press `Windows + .` to open emojis! On mobile, tap the emoji button on your keyboard.")
 
+    # 1. Render existing messages FIRST so they stay above the input box
     for msg in st.session_state["messages"]:
         avatar_img = st.session_state.get("profile_pic", None) if msg["role"] == "user" else None
         with st.chat_message(msg["role"], avatar=avatar_img):
@@ -762,8 +763,8 @@ def render_solo_study_chat():
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
-    # Bottom sticky input layout grouping the '+' toggle and the chat input together
-    col_btn, col_input = st.columns([1, 11])
+    # 2. Attachment toggle and uploader right above the chat input
+    col_btn, col_input_placeholder = st.columns([1, 11])
     with col_btn:
         if st.button("➕", use_container_width=True):
             st.session_state["show_uploader"] = not st.session_state["show_uploader"]
@@ -784,12 +785,15 @@ def render_solo_study_chat():
             }
             st.success(f"Attached: {uploaded_popup.name}")
             st.session_state["show_uploader"] = False
+            st.rerun()
 
     if st.session_state.get("attached_file"):
         st.info(f"📎 Ready to send: {st.session_state['attached_file']['name']}")
         if st.button("❌ Remove Attachment"):
             st.session_state["attached_file"] = None
+            st.rerun()
 
+    # 3. Chat input stays pinned at the bottom of the page
     user_input = st.chat_input("Ask a study question... 💬")
 
     if user_input or st.session_state.get("attached_file"):
@@ -818,18 +822,12 @@ def render_solo_study_chat():
         }
 
         st.session_state["messages"].append(msg_payload)
-        with st.chat_message("user", avatar=st.session_state.get("profile_pic", None)):
-            st.markdown(content_to_send)
-            if file_data_str and file_type_str.startswith("image/"):
-                st.image(file_data_str, width=250)
 
         if detect_harmful_keywords(content_to_send):
             reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
             st.session_state["messages"].append({"role": "assistant", "content": reply})
             save_user_session()
-            with st.chat_message("assistant"):
-                st.markdown(reply)
-            return
+            st.rerun()
 
         if detect_foul_language(content_to_send):
             st.warning("⚠️ Inappropriate language flagged and sent to admin.")
@@ -863,8 +861,7 @@ def render_solo_study_chat():
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
-        with st.chat_message("assistant"):
-            st.markdown(ai_reply)
+        st.rerun()
 
 # =====================================================================
 # SECTION 16: COLLABORATIVE STUDY GROUPS & ROBLOX-STYLE NICKNAMES
