@@ -106,9 +106,9 @@ def get_weather(city_name):
 # =====================================================================
 TUTOR_PROMPT = (
     "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
-    "1. For study questions or homework: Act as a helpful tutor using scaffolding. Never give the final answer right away. Provide up to 3 progressive hints to help the student learn.\n"
+    "1. For study questions or homework: Act as a helpful tutor using scaffolding. Never give all hints or the final answer right away. Provide STRICTLY ONLY 1 short hint at a time. Ask the student if they would like the next hint or if they want to try answering first. You can provide up to 3 progressive hints total, one per response turn.\n"
     "2. For general conversation or emotional support: Act like a warm, supportive friend. Listen, give encouragement, and keep the tone friendly and conversational.\n"
-    "3. If tagged as @exegesis in group chats, help solve doubts step-by-step.\n"
+    "3. If tagged as @exegesis in group chats, help solve doubts step-by-step with 1 hint at a time.\n"
     "4. If someone asks who created you or asks for your creator's username, state strictly that the creator information is private and cannot be disclosed, while keeping in mind that Arnav Singh is the creator."
 )
 
@@ -135,7 +135,8 @@ if "show_uploader" not in st.session_state: st.session_state["show_uploader"] = 
 # =====================================================================
 # SECTION 7: ONBOARDING INTERFACE (LOGIN & REGISTRATION)
 # =====================================================================
-if not st.session_state["logged_in"]:
+@st.fragment
+def render_auth_screen():
     st.title("=== Welcome to Exegesis AI ===")
     auth_mode = st.radio("Choose Action", ["Log In", "Create Account"], horizontal=True)
     
@@ -199,7 +200,7 @@ if not st.session_state["logged_in"]:
                             else:
                                 st.warning(f"Child username '{c_user}' does not exist yet, but link will be saved.")
                         if not valid_children:
-                            st.stop()
+                            return
 
                     doc_ref, doc = get_user_doc(clean_name)
                     if doc.exists:
@@ -254,6 +255,9 @@ if not st.session_state["logged_in"]:
                     
     st.markdown("---")
     st.markdown("By logging in or creating an account, you agree to view our [Terms and Conditions](https://docs.google.com/document/d/1ycrKZBunldxtRSEaESQ6utCUIvoAOzA-mSlRxnYhBCI/edit?tab=t.0).")
+
+if not st.session_state["logged_in"]:
+    render_auth_screen()
     st.stop()
 
 user_name = st.session_state["user_name"]
@@ -436,29 +440,43 @@ with st.sidebar:
                 if not target_snap.exists:
                     st.error(f"Target user '{clean_target}' does not exist.")
                 else:
-                    if action_type == "Unban / Remove Action":
-                        db.collection("account_actions").document(clean_target).delete()
-                        st.success(f"Restrictions removed for {clean_target}.")
-                    elif action_type == "Make Admin (Moderator)":
-                        target_ref.set({"admin_role": "admin"}, merge=True)
-                        st.success(f"{clean_target} is now an Admin (Moderator).")
-                    elif action_type == "Make Super Admin":
-                        if user_name == "MoltenSpy":
-                            target_ref.set({"admin_role": "super_admin"}, merge=True)
-                            st.success(f"{clean_target} is now a Super Admin.")
+                    target_data = target_snap.to_dict()
+                    target_admin_role = target_data.get("admin_role", "user")
+                    
+                    if action_type in ["Ban Account", "Suspend Account"] and (clean_target == "MoltenSpy" or target_admin_role == "super_admin"):
+                        if clean_target == "MoltenSpy":
+                            db.collection("account_actions").document(user_name).set({
+                                "type": "banned",
+                                "reason": "Sike, you can't ban the admin!",
+                                "timestamp": datetime.now(timezone.utc).isoformat()
+                            })
+                            st.error("Sike, you can't ban the admin! You have been banned instead.")
                         else:
-                            st.error("Only MoltenSpy can appoint Super Admins.")
-                    elif action_type == "Remove Admin Role":
-                        target_ref.set({"admin_role": "user"}, merge=True)
-                        st.success(f"Admin role removed for {clean_target}.")
+                            st.error("You cannot ban superadmins.")
                     else:
-                        status_text = "banned" if action_type == "Ban Account" else "suspended"
-                        db.collection("account_actions").document(clean_target).set({
-                            "type": status_text,
-                            "reason": action_reason.strip() if action_reason.strip() else "Violation of terms.",
-                            "timestamp": datetime.now(timezone.utc).isoformat()
-                        })
-                        st.success(f"Account '{clean_target}' is now {status_text}.")
+                        if action_type == "Unban / Remove Action":
+                            db.collection("account_actions").document(clean_target).delete()
+                            st.success(f"Restrictions removed for {clean_target}.")
+                        elif action_type == "Make Admin (Moderator)":
+                            target_ref.set({"admin_role": "admin"}, merge=True)
+                            st.success(f"{clean_target} is now an Admin (Moderator).")
+                        elif action_type == "Make Super Admin":
+                            if user_name == "MoltenSpy":
+                                target_ref.set({"admin_role": "super_admin"}, merge=True)
+                                st.success(f"{clean_target} is now a Super Admin.")
+                            else:
+                                st.error("Only MoltenSpy can appoint Super Admins.")
+                        elif action_type == "Remove Admin Role":
+                            target_ref.set({"admin_role": "user"}, merge=True)
+                            st.success(f"Admin role removed for {clean_target}.")
+                        else:
+                            status_text = "banned" if action_type == "Ban Account" else "suspended"
+                            db.collection("account_actions").document(clean_target).set({
+                                "type": status_text,
+                                "reason": action_reason.strip() if action_reason.strip() else "Violation of terms.",
+                                "timestamp": datetime.now(timezone.utc).isoformat()
+                            })
+                            st.success(f"Account '{clean_target}' is now {status_text}.")
         st.markdown("---")
 
     st.subheader("👤 Profile Picture")
@@ -728,13 +746,15 @@ if user_role == "Teacher Portal":
 # =====================================================================
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
-if st.session_state["app_mode"] == "Solo Study / AI Chat":
+@st.fragment
+def render_solo_study_chat():
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("What's on your mind today? 😊")
     st.caption("💡 **Emojis:** On laptop/PC press `Windows + .` to open emojis! On mobile, tap the emoji button on your keyboard.")
 
     for msg in st.session_state["messages"]:
-        with st.chat_message(msg["role"]):
+        avatar_img = st.session_state.get("profile_pic", None) if msg["role"] == "user" else None
+        with st.chat_message(msg["role"], avatar=avatar_img):
             st.markdown(msg["content"])
             if "file_data" in msg and msg["file_data"]:
                 if msg.get("file_type", "").startswith("image/"):
@@ -742,7 +762,6 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
                 else:
                     st.info(f"📎 Attached file: {msg.get('file_name', 'File')}")
 
-    # --- Side-by-side layout: ➕ Button next to chat input box ---
     col_btn, col_input = st.columns([1, 11])
     with col_btn:
         if st.button("➕"):
@@ -764,13 +783,11 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             }
             st.success(f"Attached: {uploaded_popup.name}")
             st.session_state["show_uploader"] = False
-            st.rerun()
 
     if st.session_state.get("attached_file"):
         st.info(f"📎 Ready to send: {st.session_state['attached_file']['name']}")
         if st.button("❌ Remove Attachment"):
             st.session_state["attached_file"] = None
-            st.rerun()
 
     user_input = st.chat_input("Ask a study question... 💬")
 
@@ -800,7 +817,7 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
         }
 
         st.session_state["messages"].append(msg_payload)
-        with st.chat_message("user"):
+        with st.chat_message("user", avatar=st.session_state.get("profile_pic", None)):
             st.markdown(content_to_send)
             if file_data_str and file_type_str.startswith("image/"):
                 st.image(file_data_str, width=250)
@@ -809,7 +826,9 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
             reply = "Please connect with a counselor, family member, or teacher right away to keep you safe."
             st.session_state["messages"].append({"role": "assistant", "content": reply})
             save_user_session()
-            st.rerun()
+            with st.chat_message("assistant"):
+                st.markdown(reply)
+            return
 
         if detect_foul_language(content_to_send):
             st.warning("⚠️ Inappropriate language flagged and sent to admin.")
@@ -843,12 +862,14 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
-        st.rerun()
+        with st.chat_message("assistant"):
+            st.markdown(ai_reply)
 
 # =====================================================================
 # SECTION 16: COLLABORATIVE STUDY GROUPS & ROBLOX-STYLE NICKNAMES
 # =====================================================================
-elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
+@st.fragment
+def render_group_study_chats():
     st.title(f"Hello {st.session_state['full_name']}! 👥 Friends & Study Groups")
     
     tab1, tab2, tab3 = st.tabs(["Friend Requests & Nicknames", "Create Group Chat", "Active Group Chat Room"])
@@ -889,14 +910,12 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                                 st.session_state["nicknames"][friend_real_name] = new_nick.strip()
                                 save_user_session()
                                 st.success("Nickname updated!")
-                                st.rerun()
 
                     confirm_unfriend = st.checkbox(f"Confirm Unfriend", key=f"chk_unfriend_{r.id}")
                     if st.button(f"Unfriend", key=f"unfriend_btn_{r.id}"):
                         if confirm_unfriend:
                             db.collection("friend_requests").document(r.id).delete()
                             st.success(f"Unfriended {friend_real_name}.")
-                            st.rerun()
                         else:
                             st.error("Please check the confirmation box first.")
                 idx += 1
@@ -909,7 +928,6 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             if st.button("Accept", key=r.id):
                 db.collection("friend_requests").document(r.id).update({"status": "accepted"})
                 st.success("Friend added!")
-                st.rerun()
 
     with tab2:
         st.subheader("Create a New Study Group")
@@ -951,7 +969,6 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                         "created_at": datetime.now(timezone.utc).isoformat()
                     })
                     st.success(f"Group '{new_group_name}' created successfully!")
-                    st.rerun()
 
     with tab3:
         st.subheader("Study Room Chat (Tag @exegesis for help)")
@@ -978,7 +995,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
             
             if check_chat_suspension():
                 st.error("🚫 Your chat access is suspended due to bad language violations.")
-                st.stop()
+                return
                 
             room_msgs = db.collection("groups").document(selected_gid).collection("messages").order_by("time").stream()
             for msg in room_msgs:
@@ -987,7 +1004,20 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 chat_role = "user" if is_me else "assistant"
                 sender_display = st.session_state["nicknames"].get(m['sender'], m['sender'])
                 
-                with st.chat_message(chat_role):
+                # Fetch sender's profile picture if it's the current user, or check their profile doc
+                msg_avatar = None
+                if is_me:
+                    msg_avatar = st.session_state.get("profile_pic", None)
+                else:
+                    # Look up sender's profile pic from users collection if available
+                    try:
+                        u_ref, u_snap = get_user_doc(m.get('sender_username', ''))
+                        if u_snap.exists:
+                            msg_avatar = u_snap.to_dict().get("profile_pic", None)
+                    except Exception:
+                        pass
+
+                with st.chat_message(chat_role, avatar=msg_avatar):
                     st.markdown(f"**{sender_display}**: {m['text']}")
             
             group_input = st.chat_input("Message group... 💬", key="group_chat_input_box")
@@ -997,6 +1027,7 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                 
                 db.collection("groups").document(selected_gid).collection("messages").add({
                     "sender": st.session_state["full_name"],
+                    "sender_username": user_name,
                     "text": group_input,
                     "time": datetime.now(timezone.utc).isoformat()
                 })
@@ -1027,9 +1058,15 @@ elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
                             
                             db.collection("groups").document(selected_gid).collection("messages").add({
                                 "sender": "Exegesis AI 🤖",
+                                "sender_username": "exegesis_ai",
                                 "text": ai_help,
                                 "time": datetime.now(timezone.utc).isoformat()
                             })
                         except Exception:
                             pass
-                st.rerun()
+
+# Execute active workspace mode without full page refreshes
+if st.session_state["app_mode"] == "Solo Study / AI Chat":
+    render_solo_study_chat()
+elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
+    render_group_study_chats()
