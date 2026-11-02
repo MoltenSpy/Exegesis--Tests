@@ -760,6 +760,7 @@ if user_role == "Teacher Portal":
 # =====================================================================
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
+@st.fragment
 def render_solo_study_chat():
     st.title(f"Hello {st.session_state['full_name']}!")
     st.subheader("What's on your mind today? 😊")
@@ -843,7 +844,7 @@ def render_solo_study_chat():
             {"role": m["role"], "content": m["content"]} for m in st.session_state["messages"]
         ]
         
-        # Brought back the thinking spinner!
+        # Thinking spinner indicator
         with st.spinner("Exegesis AI is thinking..."):
             try:
                 resp = requests.post(
@@ -869,6 +870,7 @@ def render_solo_study_chat():
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
+        st.rerun()
 
 
 # =====================================================================
@@ -1068,7 +1070,7 @@ def render_group_study_chats():
                         except Exception:
                             pass
 
-# Execute active workspace mode smoothly without full page reloads
+# Execute active workspace mode smoothly
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
     render_solo_study_chat()
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
