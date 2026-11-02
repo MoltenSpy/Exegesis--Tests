@@ -247,7 +247,6 @@ def render_auth_screen():
                         st.session_state["account_type"] = user_data.get("account_type", "Student Portal")
                         st.session_state["parent_mode"] = user_data.get("parent_mode", "")
                         
-                        # Save old active messages into chat history if they exist before starting clean
                         existing_msgs = user_data.get("messages", [])
                         existing_history = user_data.get("chat_history", [])
                         if existing_msgs:
@@ -397,7 +396,6 @@ with st.sidebar:
                 for f in feedbacks:
                     db.collection("feedbacks").document(f.id).delete()
                 st.success("Feedback archive cleared!")
-                st.rerun()
         
         st.markdown("### 🚨 Violation Reports")
         reports = list(db.collection("violations").stream())
@@ -422,7 +420,6 @@ with st.sidebar:
                         })
                         db.collection("violations").document(rep.id).delete()
                         st.success(f"Warning sent to {u_target}!")
-                        st.rerun()
                 with c2:
                     if st.button("⏸️ Suspend", key=f"sus_{rep.id}"):
                         db.collection("account_actions").document(u_target).set({
@@ -432,7 +429,6 @@ with st.sidebar:
                         })
                         db.collection("violations").document(rep.id).delete()
                         st.success(f"Suspended {u_target}!")
-                        st.rerun()
                 with c3:
                     if st.button("🚫 Ban", key=f"ban_{rep.id}"):
                         db.collection("account_actions").document(u_target).set({
@@ -442,12 +438,10 @@ with st.sidebar:
                         })
                         db.collection("violations").document(rep.id).delete()
                         st.success(f"Banned {u_target}!")
-                        st.rerun()
                 with c4:
                     if st.button("❌ Dismiss", key=f"dismiss_{rep.id}"):
                         db.collection("violations").document(rep.id).delete()
                         st.success(f"Report dismissed for {u_target}!")
-                        st.rerun()
                 st.markdown("---")
         
         target_user = st.text_input("Target Username", key="admin_target")
@@ -523,7 +517,6 @@ with st.sidebar:
                 st.session_state["full_name"] = new_name_val.strip()
                 db.collection("users").document(user_name).update({"full_name": new_name_val.strip()})
                 st.success("Full name updated successfully!")
-                st.rerun()
             else:
                 st.error("Full name cannot be empty.")
         
@@ -552,7 +545,6 @@ with st.sidebar:
                 })
             st.session_state["messages"] = []
             save_user_session()
-            st.rerun()
 
         with st.expander("💬 Solo Chat History"):
             if len(st.session_state["chat_history"]) > 3:
@@ -560,19 +552,16 @@ with st.sidebar:
                     st.session_state["chat_history"] = []
                     save_user_session()
                     st.success("All chat history cleared!")
-                    st.rerun()
 
             for i, chat in enumerate(st.session_state["chat_history"]):
                 cols = st.columns([4, 1])
                 with cols[0]:
                     if st.button(chat["title"], key=f"history_{i}"):
                         st.session_state["messages"] = chat["messages"]
-                        st.rerun()
                 with cols[1]:
                     if st.button("❌", key=f"del_chat_{i}"):
                         st.session_state["chat_history"].pop(i)
                         save_user_session()
-                        st.rerun()
 
     elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
         st.subheader("🟣 Group Chats")
@@ -580,7 +569,6 @@ with st.sidebar:
         if st.session_state["active_group_id"]:
             if st.button("❌ Close Current Group", use_container_width=True):
                 st.session_state["active_group_id"] = None
-                st.rerun()
             st.markdown("---")
 
         groups_query = db.collection("groups").stream()
@@ -591,7 +579,6 @@ with st.sidebar:
             if user_name in members or g_data.get("creator") == st.session_state["full_name"]:
                 if st.button(f"🟣 {g_data['name']}", key=f"sidebar_group_{g.id}", use_container_width=True):
                     st.session_state["active_group_id"] = g.id
-                    st.rerun()
 
     st.markdown("---")
     st.subheader("🌤️ Weather Report")
@@ -709,7 +696,6 @@ if user_role == "Parent Portal":
                     children_list.append(new_child_input.strip())
                     doc_ref.set({"child_usernames": children_list}, merge=True)
                     st.success("Child added successfully!")
-                    st.rerun()
                 else:
                     st.warning("Child is already added.")
             else:
@@ -832,7 +818,7 @@ def render_solo_study_chat():
             "file_name": file_name_str
         }
 
-        # Append and show user message immediately without full reload flash
+        # Append and show user message immediately without flashing
         st.session_state["messages"].append(msg_payload)
         with st.chat_message("user", avatar=st.session_state.get("profile_pic", None)):
             st.markdown(content_to_send)
@@ -857,6 +843,7 @@ def render_solo_study_chat():
             {"role": m["role"], "content": m["content"]} for m in st.session_state["messages"]
         ]
         
+        # Brought back the thinking spinner!
         with st.spinner("Exegesis AI is thinking..."):
             try:
                 resp = requests.post(
@@ -882,7 +869,6 @@ def render_solo_study_chat():
 
         st.session_state["messages"].append({"role": "assistant", "content": ai_reply})
         save_user_session()
-        st.rerun()
 
 
 # =====================================================================
@@ -1082,7 +1068,7 @@ def render_group_study_chats():
                         except Exception:
                             pass
 
-# Execute active workspace mode without full page refreshes
+# Execute active workspace mode smoothly without full page reloads
 if st.session_state["app_mode"] == "Solo Study / AI Chat":
     render_solo_study_chat()
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
