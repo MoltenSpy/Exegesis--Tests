@@ -140,75 +140,93 @@ def get_active_tutor_prompt():
 
 
 def render_answer_actions(answer_text, key="ai_answer"):
-    """Render sleek copy and text-to-speech controls beneath an AI answer."""
-    safe_text = json.dumps(str(answer_text or ""))
+    """Render theme-aware Listen and Copy controls below each AI answer."""
+    safe_text = json.dumps(str(answer_text or ""), ensure_ascii=False)
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
+    theme = str(st.get_option("theme.base") or "light").lower()
+    dark = theme == "dark"
+    bg = "#252a34" if dark else "#ffffff"
+    fg = "#f3f4f6" if dark else "#202938"
+    border = "#596273" if dark else "#cbd5e1"
+    hover = "#343b49" if dark else "#f1f5f9"
+    status = "#cbd5e1" if dark else "#475569"
+
     html = f"""
-    <div style="display:flex;align-items:center;gap:7px;margin:7px 0 12px 0;
-                font-family:Arial,sans-serif;">
+    <div id="actions_{safe_key}" style="display:flex;align-items:center;gap:8px;
+         flex-wrap:wrap;margin:7px 0 12px;font-family:Arial,sans-serif;">
       <button id="speak_{safe_key}" type="button" title="Listen to answer"
-        style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(128,128,128,.35);
-               border-radius:18px;padding:6px 11px;background:transparent;color:inherit;
-               cursor:pointer;font-size:13px;">
-        <span style="font-size:15px;">🔊</span><span>Listen</span>
+        style="display:inline-flex;align-items:center;gap:7px;background:{bg};color:{fg};
+        border:1px solid {border};border-radius:18px;padding:7px 12px;font-size:13px;
+        font-weight:600;cursor:pointer;">
+        <span>🔊</span><span>Listen</span>
       </button>
-      <button id="copy_{safe_key}" type="button" title="Copy answer"
-        style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(128,128,128,.35);
-               border-radius:18px;padding:6px 11px;background:transparent;color:inherit;
-               cursor:pointer;font-size:13px;">
-        <span style="font-size:14px;">⧉</span><span>Copy</span>
+      <button id="copy_{safe_key}" type="button" title="Copy answer as plain text"
+        style="display:inline-flex;align-items:center;gap:7px;background:{bg};color:{fg};
+        border:1px solid {border};border-radius:18px;padding:7px 12px;font-size:13px;
+        font-weight:600;cursor:pointer;">
+        <span>⧉</span><span>Copy</span>
       </button>
-      <span id="status_{safe_key}" aria-live="polite" style="font-size:12px;opacity:.7;"></span>
+      <span id="status_{safe_key}" role="status" aria-live="polite"
+        style="font-size:12px;color:{status};"></span>
     </div>
     <script>
-      (() => {{
-        const answerText = {safe_text};
-        const speakButton = document.getElementById("speak_{safe_key}");
-        const copyButton = document.getElementById("copy_{safe_key}");
-        const statusLabel = document.getElementById("status_{safe_key}");
-        speakButton.addEventListener("click", () => {{
-          if (!("speechSynthesis" in window)) {{
-            statusLabel.textContent = "Speech isn't supported in this browser.";
-            return;
+    (() => {{
+      const raw = {safe_text};
+      const clean = (value) => {{
+        let t = String(value ?? '');
+        t = t.replace(/^\\s*```[^\\n]*\\n?/gm, '').replace(/^\\s*```\\s*$/gm, '');
+        t = t.replace(/!\\[([^\\]]*)\\]\\([^)]*\\)/g, '$1');
+        t = t.replace(/\\[([^\\]]+)\\]\\([^)]*\\)/g, '$1');
+        t = t.replace(/<[^>]*>/g, '');
+        t = t.replace(/^\\s{0,3}#{1,6}\\s+/gm, '').replace(/^\\s*>\\s?/gm, '');
+        t = t.replace(/^\\s*[-+]\\s+/gm, '• ');
+        t = t.replace(/\\*{{2,3}}([^*]+?)\\*{{2,3}}/g, '$1');
+        t = t.replace(/_{{2,3}}([^_]+?)_{{2,3}}/g, '$1');
+        t = t.replace(/\\*{{2,}}/g, '').replace(/_{{2,}}/g, '');
+        t = t.replace(/~~([^~]+?)~~/g, '$1').replace(/`([^`]+)`/g, '$1');
+        return t.replace(/\\n{{3,}}/g, '\\n\\n').trim();
+      }};
+      const plain = clean(raw);
+      const speak = document.getElementById("speak_{safe_key}");
+      const copy = document.getElementById("copy_{safe_key}");
+      const statusEl = document.getElementById("status_{safe_key}");
+      [speak, copy].forEach(btn => {{
+        btn.addEventListener('mouseenter', () => btn.style.background = '{hover}');
+        btn.addEventListener('mouseleave', () => btn.style.background = '{bg}');
+        btn.addEventListener('focus', () => btn.style.outline = '2px solid #60a5fa');
+        btn.addEventListener('blur', () => btn.style.outline = 'none');
+      }});
+      speak.addEventListener('click', () => {{
+        if (!('speechSynthesis' in window)) {{ statusEl.textContent = 'Speech is not supported in this browser.'; return; }}
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(plain);
+        utterance.rate = 1;
+        utterance.onstart = () => statusEl.textContent = 'Speaking…';
+        utterance.onend = () => statusEl.textContent = '';
+        utterance.onerror = () => statusEl.textContent = 'Could not play audio.';
+        window.speechSynthesis.speak(utterance);
+      }});
+      copy.addEventListener('click', async () => {{
+        try {{
+          if (navigator.clipboard && window.isSecureContext) {{
+            await navigator.clipboard.writeText(plain);
+          }} else {{
+            const area = document.createElement('textarea');
+            area.value = plain; area.setAttribute('readonly', '');
+            area.style.position = 'fixed'; area.style.left = '-9999px';
+            document.body.appendChild(area); area.select();
+            const ok = document.execCommand('copy'); area.remove();
+            if (!ok) throw new Error('Copy failed');
           }}
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(answerText);
-          utterance.rate = 1;
-          utterance.pitch = 1;
-          utterance.onstart = () => {{ statusLabel.textContent = "Speaking…"; }};
-          utterance.onend = () => {{ statusLabel.textContent = ""; }};
-          utterance.onerror = () => {{ statusLabel.textContent = "Couldn't play audio."; }};
-          window.speechSynthesis.speak(utterance);
-        }});
-        copyButton.addEventListener("click", async () => {{
-          try {{
-            if (navigator.clipboard && window.isSecureContext) {{
-              await navigator.clipboard.writeText(answerText);
-            }} else {{
-              const temp = document.createElement("textarea");
-              temp.value = answerText;
-              temp.style.position = "fixed";
-              temp.style.opacity = "0";
-              document.body.appendChild(temp);
-              temp.select();
-              const ok = document.execCommand("copy");
-              temp.remove();
-              if (!ok) throw new Error("Copy failed");
-            }}
-            statusLabel.textContent = "Copied!";
-            copyButton.querySelector("span:last-child").textContent = "Copied";
-            setTimeout(() => {{
-              statusLabel.textContent = "";
-              copyButton.querySelector("span:last-child").textContent = "Copy";
-            }}, 1400);
-          }} catch (error) {{
-            statusLabel.textContent = "Couldn't copy. Select the answer to copy it.";
-          }}
-        }});
-      }})();
+          statusEl.textContent = 'Copied as plain text';
+          copy.querySelector('span:last-child').textContent = 'Copied';
+          setTimeout(() => copy.querySelector('span:last-child').textContent = 'Copy', 1400);
+        }} catch (e) {{ statusEl.textContent = 'Could not copy automatically.'; }}
+      }});
+    }})();
     </script>
     """
-    components.html(html, height=48)
+    components.html(html, height=58, scrolling=False)
 
 
 # =====================================================================
@@ -1478,7 +1496,7 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # CHAT INPUT
     # ---------------------------------------------------------------
-    st.caption("Exegesis AI can make mistakes. Double-check important information.")
+    st.caption("Exegesis AI can make mistakes. Double check important information.")
     # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
     prompt = st.chat_input(
         "Ask a study question... (press Enter to send) 💬",
@@ -2213,7 +2231,7 @@ def render_group_study_chats():
         # --------------------------------------------------------
         # GROUP CHAT INPUT
         # --------------------------------------------------------
-        st.caption("Exegesis AI can make mistakes. Double-check important information.")
+        st.caption("Exegesis AI can make mistakes. Double check important information.")
         # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
         group_input = st.chat_input(
             "Message group... (press Enter to send) 💬",
