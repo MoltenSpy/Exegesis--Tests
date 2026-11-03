@@ -1611,10 +1611,9 @@ def render_group_study_chats():
         "👥 Friends & Study Groups"
     )
 
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2 = st.tabs([
         "Friend Requests & Nicknames",
-        "Create Group Chat",
-        "Active Group Chat Room"
+        "Create Group Chat"
     ])
 
     # ================================================================
@@ -1871,8 +1870,16 @@ def render_group_study_chats():
             f"{', '.join(friend_names) if friend_names else 'None'}"
         )
 
+        selected_friend_names = st.multiselect(
+            "Add friends from your friends list",
+            options=sorted(set(friend_names)),
+            help="Select one or more friends here instead of typing their names.",
+            key="group_friend_picker"
+        )
+
         members_input = st.text_input(
-            "Member Full Names (separate with commas)"
+            "Or enter friend full names manually (separate with commas)",
+            placeholder="Optional — you can use the dropdown above instead"
         )
 
         uploaded_group_pic = st.file_uploader(
@@ -1888,11 +1895,13 @@ def render_group_study_chats():
 
             else:
 
-                parsed_members = [
-                    m.strip()
-                    for m in members_input.split(",")
-                    if m.strip()
-                ]
+                parsed_members = list(dict.fromkeys(
+                    selected_friend_names + [
+                        m.strip()
+                        for m in members_input.split(",")
+                        if m.strip()
+                    ]
+                ))
 
                 invalid_members = [
                     m for m in parsed_members
@@ -1948,271 +1957,281 @@ def render_group_study_chats():
                     st.rerun()
 
     # ================================================================
-    # TAB 3: ACTIVE GROUP CHAT
+    # GROUP CHAT ROOM — SELECT A GROUP BEFORE OPENING
     # ================================================================
-    with tab3:
+    st.markdown("---")
+    st.subheader("Open a Study Group")
+    st.caption("Choose one of your groups to open its chat room.")
 
-        st.subheader(
-            "Study Room Chat (Tag @exegesis for help)"
+    all_groups = list(
+        db.collection("groups").stream()
+    )
+
+    # Only show groups the current user belongs to.
+    group_options = {
+        g.id: g.to_dict()["name"]
+        for g in all_groups
+        if (
+            user_name in g.to_dict().get("members", [])
+            or
+            st.session_state["full_name"]
+            == g.to_dict().get("creator")
+        )
+    }
+
+    if not group_options:
+
+        st.info(
+            "No groups available. Go to Create Group Chat "
+            "to start one!"
         )
 
-        all_groups = list(
-            db.collection("groups").stream()
+    else:
+
+        if (
+            st.session_state.get("open_group_chat_selector")
+            not in group_options
+        ):
+            st.session_state["open_group_chat_selector"] = (
+                st.session_state.get("active_group_id")
+                if st.session_state.get("active_group_id") in group_options
+                else None
+            )
+
+        selected_gid = st.selectbox(
+            "Select a group to open",
+            options=list(group_options.keys()),
+            format_func=lambda x: f"🟣 {group_options[x]}",
+            index=(
+                list(group_options.keys()).index(st.session_state["active_group_id"])
+                if st.session_state.get("active_group_id") in group_options
+                else None
+            ),
+            placeholder="Choose a group...",
+            key="open_group_chat_selector"
         )
 
-        # Only show groups the current user belongs to.
-        group_options = {
-            g.id: g.to_dict()["name"]
-            for g in all_groups
-            if (
-                user_name in g.to_dict().get("members", [])
-                or
-                st.session_state["full_name"]
-                == g.to_dict().get("creator")
-            )
-        }
+        if not selected_gid:
+            st.info("Select a group above to open its chat room.")
+            return
 
-        if not group_options:
+        st.session_state["active_group_id"] = selected_gid
+        st.subheader("Study Room Chat (Tag @exegesis for help)")
 
-            st.info(
-                "No groups available. Go to Create Group Chat "
-                "to start one!"
-            )
+        group_ref = (
+            db.collection("groups")
+            .document(selected_gid)
+        )
 
-        else:
+        g_doc = group_ref.get()
 
-            selected_gid = st.selectbox(
-                "Select Group Chat",
-                options=list(group_options.keys()),
-                format_func=lambda x: (
-                    f"🟣 {group_options[x]}"
-                ),
-                index=(
-                    list(group_options.keys()).index(
-                        st.session_state["active_group_id"]
-                    )
-                    if st.session_state["active_group_id"]
-                    in group_options
-                    else 0
-                )
-            )
+        if g_doc.exists:
 
-            st.session_state["active_group_id"] = selected_gid
+            g_info = g_doc.to_dict()
 
-            group_ref = (
-                db.collection("groups")
-                .document(selected_gid)
-            )
-
-            g_doc = group_ref.get()
-
-            if g_doc.exists:
-
-                g_info = g_doc.to_dict()
-
-                if g_info.get("profile_pic"):
-                    st.image(
-                        g_info["profile_pic"],
-                        width=60
-                    )
-
-            if check_chat_suspension():
-
-                st.error(
-                    "🚫 Your chat access is suspended due to "
-                    "inappropriate language violations."
+            if g_info.get("profile_pic"):
+                st.image(
+                    g_info["profile_pic"],
+                    width=60
                 )
 
-                return
+        if check_chat_suspension():
 
-            # --------------------------------------------------------
-            # DISPLAY GROUP MESSAGES
-            # --------------------------------------------------------
-            room_msgs = (
-                group_ref.collection("messages")
-                .order_by("time")
-                .stream()
+            st.error(
+                "🚫 Your chat access is suspended due to "
+                "inappropriate language violations."
             )
 
-            profile_pic_cache = {user_name: st.session_state.get("profile_pic", "")}
+            return
 
-            for msg in room_msgs:
-                m = msg.to_dict()
-                sender_username = m.get("sender_username", "")
-                sender_name = m.get("sender", "Unknown")
+        # --------------------------------------------------------
+        # DISPLAY GROUP MESSAGES
+        # --------------------------------------------------------
+        room_msgs = (
+            group_ref.collection("messages")
+            .order_by("time")
+            .stream()
+        )
 
-                is_me = sender_username == user_name
-                chat_role = "user" if is_me else "assistant"
-                sender_display = st.session_state["nicknames"].get(
-                    sender_name, sender_name
+        profile_pic_cache = {user_name: st.session_state.get("profile_pic", "")}
+
+        for msg in room_msgs:
+            m = msg.to_dict()
+            sender_username = m.get("sender_username", "")
+            sender_name = m.get("sender", "Unknown")
+
+            is_me = sender_username == user_name
+            chat_role = "user" if is_me else "assistant"
+            sender_display = st.session_state["nicknames"].get(
+                sender_name, sender_name
+            )
+
+            # Look up each sender's saved profile picture once per page run.
+            msg_avatar = profile_pic_cache.get(sender_username, "")
+            if not msg_avatar and sender_username and sender_username != "exegesis_ai":
+                try:
+                    _, sender_doc = get_user_doc(sender_username)
+                    if sender_doc.exists:
+                        msg_avatar = sender_doc.to_dict().get("profile_pic", "") or ""
+                    profile_pic_cache[sender_username] = msg_avatar
+                except Exception:
+                    profile_pic_cache[sender_username] = ""
+
+            with st.chat_message(chat_role):
+                avatar_col, message_col = st.columns([0.10, 0.90])
+                with avatar_col:
+                    if msg_avatar:
+                        st.image(msg_avatar, width=42)
+                    else:
+                        st.write("🤖" if sender_username == "exegesis_ai" else "👤")
+                with message_col:
+                    st.markdown(f"**{sender_display}**: {m.get('text', '')}")
+
+        # --------------------------------------------------------
+        # GROUP CHAT INPUT
+        # --------------------------------------------------------
+        # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
+        group_input = st.chat_input(
+            "Message group... (press Enter to send) 💬",
+            key="group_chat_input_box"
+        )
+
+        if group_input:
+
+            if detect_foul_language(group_input):
+
+                st.warning(
+                    "⚠️ Inappropriate language detected "
+                    "and logged to the Admin Panel."
                 )
 
-                # Look up each sender's saved profile picture once per page run.
-                msg_avatar = profile_pic_cache.get(sender_username, "")
-                if not msg_avatar and sender_username and sender_username != "exegesis_ai":
+            # SAVE USER MESSAGE
+            group_ref.collection("messages").add({
+                "sender": st.session_state["full_name"],
+                "sender_username": user_name,
+                "text": group_input,
+                "time": datetime.now(
+                    timezone.utc
+                ).isoformat()
+            })
+
+            # ----------------------------------------------------
+            # EXEGESIS AI GROUP CHAT RESPONSE
+            # ----------------------------------------------------
+            if "@exegesis" in group_input.lower():
+
+                with st.spinner(
+                    "Exegesis AI is thinking..."
+                ):
+
                     try:
-                        _, sender_doc = get_user_doc(sender_username)
-                        if sender_doc.exists:
-                            msg_avatar = sender_doc.to_dict().get("profile_pic", "") or ""
-                        profile_pic_cache[sender_username] = msg_avatar
-                    except Exception:
-                        profile_pic_cache[sender_username] = ""
 
-                with st.chat_message(chat_role):
-                    avatar_col, message_col = st.columns([0.10, 0.90])
-                    with avatar_col:
-                        if msg_avatar:
-                            st.image(msg_avatar, width=42)
+                        resp = requests.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+
+                            headers={
+                                "Authorization": (
+                                    f"Bearer {FULL_API_KEY}"
+                                ),
+                                "Content-Type": "application/json"
+                            },
+
+                            json={
+                                "model": "openrouter/free",
+                                "messages": [
+                                    {
+                                        "role": "system",
+                                        "content": TUTOR_PROMPT
+                                    },
+                                    {
+                                        "role": "user",
+                                        "content": group_input
+                                    }
+                                ]
+                            },
+
+                            timeout=60
+                        )
+
+                        g_resp_json = resp.json()
+
+                        if not resp.ok:
+
+                            error_data = g_resp_json.get(
+                                "error",
+                                {}
+                            )
+
+                            if isinstance(error_data, dict):
+                                error_message = error_data.get(
+                                    "message",
+                                    str(error_data)
+                                )
+                            else:
+                                error_message = str(error_data)
+
+                            ai_help = (
+                                f"OpenRouter error "
+                                f"({resp.status_code}): "
+                                f"{error_message}"
+                            )
+
+                        elif g_resp_json.get("choices"):
+
+                            ai_help = (
+                                g_resp_json["choices"][0]
+                                ["message"].get("content")
+                            )
+
+                            if ai_help is None:
+                                ai_help = ""
+
+                            ai_help = str(ai_help).strip()
+
+                            if not ai_help or ai_help.lower() == "none":
+                                ai_help = (
+                                    "I received an empty response. "
+                                    "Please try again."
+                                )
+
                         else:
-                            st.write("🤖" if sender_username == "exegesis_ai" else "👤")
-                    with message_col:
-                        st.markdown(f"**{sender_display}**: {m.get('text', '')}")
 
-            # --------------------------------------------------------
-            # GROUP CHAT INPUT
-            # --------------------------------------------------------
-            # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
-            group_input = st.chat_input(
-                "Message group... (press Enter to send) 💬",
-                key="group_chat_input_box"
-            )
+                            ai_help = (
+                                "I'm having trouble receiving "
+                                "an AI response right now."
+                            )
 
-            if group_input:
+                    except requests.Timeout:
 
-                if detect_foul_language(group_input):
+                        ai_help = (
+                            "The AI service took too long to respond. "
+                            "Please try again."
+                        )
 
-                    st.warning(
-                        "⚠️ Inappropriate language detected "
-                        "and logged to the Admin Panel."
-                    )
+                    except requests.RequestException as e:
 
-                # SAVE USER MESSAGE
+                        ai_help = (
+                            f"Network connection problem: {e}"
+                        )
+
+                    except Exception as e:
+
+                        ai_help = (
+                            f"Unexpected AI error: {e}"
+                        )
+
+                # SAVE AI RESPONSE TO FIRESTORE
                 group_ref.collection("messages").add({
-                    "sender": st.session_state["full_name"],
-                    "sender_username": user_name,
-                    "text": group_input,
+                    "sender": "Exegesis AI 🤖",
+                    "sender_username": "exegesis_ai",
+                    "text": ai_help,
                     "time": datetime.now(
                         timezone.utc
                     ).isoformat()
                 })
 
-                # ----------------------------------------------------
-                # EXEGESIS AI GROUP CHAT RESPONSE
-                # ----------------------------------------------------
-                if "@exegesis" in group_input.lower():
-
-                    with st.spinner(
-                        "Exegesis AI is thinking..."
-                    ):
-
-                        try:
-
-                            resp = requests.post(
-                                "https://openrouter.ai/api/v1/chat/completions",
-
-                                headers={
-                                    "Authorization": (
-                                        f"Bearer {FULL_API_KEY}"
-                                    ),
-                                    "Content-Type": "application/json"
-                                },
-
-                                json={
-                                    "model": "openrouter/free",
-                                    "messages": [
-                                        {
-                                            "role": "system",
-                                            "content": TUTOR_PROMPT
-                                        },
-                                        {
-                                            "role": "user",
-                                            "content": group_input
-                                        }
-                                    ]
-                                },
-
-                                timeout=60
-                            )
-
-                            g_resp_json = resp.json()
-
-                            if not resp.ok:
-
-                                error_data = g_resp_json.get(
-                                    "error",
-                                    {}
-                                )
-
-                                if isinstance(error_data, dict):
-                                    error_message = error_data.get(
-                                        "message",
-                                        str(error_data)
-                                    )
-                                else:
-                                    error_message = str(error_data)
-
-                                ai_help = (
-                                    f"OpenRouter error "
-                                    f"({resp.status_code}): "
-                                    f"{error_message}"
-                                )
-
-                            elif g_resp_json.get("choices"):
-
-                                ai_help = (
-                                    g_resp_json["choices"][0]
-                                    ["message"].get("content")
-                                )
-
-                                if ai_help is None:
-                                    ai_help = ""
-
-                                ai_help = str(ai_help).strip()
-
-                                if not ai_help or ai_help.lower() == "none":
-                                    ai_help = (
-                                        "I received an empty response. "
-                                        "Please try again."
-                                    )
-
-                            else:
-
-                                ai_help = (
-                                    "I'm having trouble receiving "
-                                    "an AI response right now."
-                                )
-
-                        except requests.Timeout:
-
-                            ai_help = (
-                                "The AI service took too long to respond. "
-                                "Please try again."
-                            )
-
-                        except requests.RequestException as e:
-
-                            ai_help = (
-                                f"Network connection problem: {e}"
-                            )
-
-                        except Exception as e:
-
-                            ai_help = (
-                                f"Unexpected AI error: {e}"
-                            )
-
-                    # SAVE AI RESPONSE TO FIRESTORE
-                    group_ref.collection("messages").add({
-                        "sender": "Exegesis AI 🤖",
-                        "sender_username": "exegesis_ai",
-                        "text": ai_help,
-                        "time": datetime.now(
-                            timezone.utc
-                        ).isoformat()
-                    })
-
-                # Refresh only this chat fragment so the whole page does not flash.
-                _rerun_current_chat_fragment()
+            # Refresh the selected group chat after sending the message.
+            _rerun_current_chat_fragment()
 
 
 # =====================================================================
