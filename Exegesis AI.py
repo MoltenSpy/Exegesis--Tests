@@ -162,12 +162,67 @@ if "parent_verified" not in st.session_state:
 # =====================================================================
 # SECTION 7: LOGIN & REGISTRATION
 # =====================================================================
+def _attempt_login(username, password):
+    """Validate credentials and populate the logged-in session."""
+    clean_name = str(username or "").strip()
+    if not clean_name or not password:
+        st.error("Please enter both your username and password.")
+        return False
+
+    doc_ref, doc = get_user_doc(clean_name)
+    if not doc.exists:
+        st.error("Invalid username or password.")
+        return False
+
+    user_data = doc.to_dict()
+    if user_data.get("password") != password:
+        st.error("Invalid username or password.")
+        return False
+
+    st.session_state["user_name"] = clean_name
+    st.session_state["full_name"] = user_data.get("full_name", clean_name)
+    st.session_state["account_type"] = user_data.get("account_type", "Student Portal")
+    st.session_state["parent_mode"] = user_data.get("parent_mode", "")
+
+    existing_msgs = user_data.get("messages", [])
+    existing_history = user_data.get("chat_history", [])
+    if existing_msgs:
+        chat_title = existing_msgs[0].get("content", "New chat")[:25] + "..."
+        existing_history.append({
+            "title": chat_title,
+            "messages": existing_msgs,
+            "time": datetime.now(timezone.utc).isoformat()
+        })
+
+    st.session_state["messages"] = []
+    st.session_state["chat_history"] = existing_history
+    st.session_state["friends"] = user_data.get("friends", [])
+    st.session_state["nicknames"] = user_data.get("nicknames", {})
+    st.session_state["user_city"] = user_data.get("user_city", "London")
+    st.session_state["profile_pic"] = user_data.get("profile_pic", "")
+    st.session_state["logged_in"] = True
+    save_user_session()
+    return True
+
+
+def _login_on_password_enter():
+    """Log in when Enter is pressed in the password field."""
+    if st.session_state.get("auth_mode_choice") != "Log In":
+        return
+    if _attempt_login(
+        st.session_state.get("login_username", ""),
+        st.session_state.get("login_password", "")
+    ):
+        st.session_state["login_enter_succeeded"] = True
+
+
 def render_auth_screen():
     st.title("=== Welcome to Exegesis AI ===")
     auth_mode = st.radio(
         "Choose Action",
         ["Log In", "Create Account"],
-        horizontal=True
+        horizontal=True,
+        key="auth_mode_choice"
     )
 
     col1, col2 = st.columns(2)
@@ -175,7 +230,8 @@ def render_auth_screen():
     with col1:
         entered_name = st.text_input(
             "Username",
-            placeholder="Enter your username"
+            placeholder="Enter your username",
+            key="login_username"
         )
 
         username_taken = False
@@ -189,7 +245,12 @@ def render_auth_screen():
         entered_pass = st.text_input(
             "Password",
             type="password",
-            placeholder="Enter your password"
+            placeholder="Enter your password",
+            key="login_password",
+            on_change=(
+                _login_on_password_enter
+                if auth_mode == "Log In" else None
+            )
         )
 
         if auth_mode == "Create Account":
@@ -335,61 +396,9 @@ def render_auth_screen():
 
         else:
             if st.button("Log In to Workspace", use_container_width=True):
-                clean_name = entered_name.strip()
-                doc_ref, doc = get_user_doc(clean_name)
-
-                if doc.exists:
-                    user_data = doc.to_dict()
-
-                    if user_data.get("password") == entered_pass:
-                        st.session_state["user_name"] = clean_name
-                        st.session_state["full_name"] = user_data.get(
-                            "full_name", clean_name
-                        )
-                        st.session_state["account_type"] = user_data.get(
-                            "account_type", "Student Portal"
-                        )
-                        st.session_state["parent_mode"] = user_data.get(
-                            "parent_mode", ""
-                        )
-
-                        existing_msgs = user_data.get("messages", [])
-                        existing_history = user_data.get("chat_history", [])
-
-                        if existing_msgs:
-                            chat_title = (
-                                existing_msgs[0]["content"][:25] + "..."
-                            )
-                            existing_history.append({
-                                "title": chat_title,
-                                "messages": existing_msgs,
-                                "time": datetime.now(timezone.utc).isoformat()
-                            })
-
-                        st.session_state["messages"] = []
-                        st.session_state["chat_history"] = existing_history
-                        st.session_state["friends"] = user_data.get(
-                            "friends", []
-                        )
-                        st.session_state["nicknames"] = user_data.get(
-                            "nicknames", {}
-                        )
-                        st.session_state["user_city"] = user_data.get(
-                            "user_city", "London"
-                        )
-                        st.session_state["profile_pic"] = user_data.get(
-                            "profile_pic", ""
-                        )
-                        st.session_state["logged_in"] = True
-
-                        save_user_session()
-                        st.rerun()
-
-                    else:
-                        st.error("Invalid username or password.")
-                else:
-                    st.error("Invalid username or password.")
-
+                if _attempt_login(entered_name, entered_pass):
+                    st.rerun()
+                
     st.markdown("---")
     st.markdown(
         "By logging in or creating an account, you agree to view our "
@@ -1307,6 +1316,25 @@ def _rerun_current_chat_fragment():
         st.rerun()
 
 
+# Keep chat composers anchored to the bottom of the viewport, including
+# when the chat is rendered inside a Streamlit fragment or tab.
+st.markdown("""
+<style>
+  div[data-testid="stChatInput"] {
+    position: fixed !important;
+    bottom: 1rem !important;
+    left: max(1rem, calc((100vw - 60rem) / 2)) !important;
+    width: min(60rem, calc(100vw - 2rem)) !important;
+    z-index: 1000 !important;
+    background: var(--background-color) !important;
+  }
+  section.main > div.block-container {
+    padding-bottom: 6rem !important;
+  }
+</style>
+""", unsafe_allow_html=True)
+
+
 @_streamlit_fragment
 def render_solo_study_chat():
 
@@ -1356,7 +1384,7 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # CHAT INPUT
     # ---------------------------------------------------------------
-    # Streamlit chat_input submits the message when the user presses Enter.
+    # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
     prompt = st.chat_input(
         "Ask a study question... (press Enter to send) 💬",
         accept_file=True,
@@ -2068,7 +2096,7 @@ def render_group_study_chats():
             # --------------------------------------------------------
             # GROUP CHAT INPUT
             # --------------------------------------------------------
-            # Streamlit chat_input submits the message when the user presses Enter.
+            # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
             group_input = st.chat_input(
                 "Message group... (press Enter to send) 💬",
                 key="group_chat_input_box"
@@ -2222,3 +2250,4 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
 
     render_group_study_chats()
+    
