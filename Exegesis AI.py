@@ -1316,23 +1316,9 @@ def _rerun_current_chat_fragment():
         st.rerun()
 
 
-# Keep chat composers anchored to the bottom of the viewport, including
-# when the chat is rendered inside a Streamlit fragment or tab.
-st.markdown("""
-<style>
-  div[data-testid="stChatInput"] {
-    position: fixed !important;
-    bottom: 1rem !important;
-    left: max(1rem, calc((100vw - 60rem) / 2)) !important;
-    width: min(60rem, calc(100vw - 2rem)) !important;
-    z-index: 1000 !important;
-    background: var(--background-color) !important;
-  }
-  section.main > div.block-container {
-    padding-bottom: 6rem !important;
-  }
-</style>
-""", unsafe_allow_html=True)
+# Let Streamlit position chat inputs inside the main content area.
+# A custom viewport-wide fixed position makes the composer overlap the
+# sidebar when it is expanded, so we intentionally keep the native layout.
 
 
 @_streamlit_fragment
@@ -2250,4 +2236,3 @@ if st.session_state["app_mode"] == "Solo Study / AI Chat":
 elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
 
     render_group_study_chats()
-    
