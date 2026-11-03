@@ -77,7 +77,7 @@ def save_user_session():
                 "profile_pic": st.session_state.get("profile_pic", ""),
                 "user_city": st.session_state.get("user_city", "London"),
                 "last_active": datetime.now(timezone.utc).isoformat()
-            }, merge=True)
+            }, merge=True, timeout=8)
         except Exception as e:
             st.warning(f"Could not save your session: {e}")
 
@@ -122,6 +122,145 @@ TUTOR_PROMPT = (
     "4. If tagged as @exegesis in group chats, help solve doubts step-by-step with guidance rather than full answers.\n"
     "5. Never disclose private creator information."
 )
+
+
+
+# =====================================================================
+# SECTION 5A: RELIABLE OPENROUTER REQUEST HANDLER
+# =====================================================================
+def get_exegesis_reply(messages):
+    """Make a bounded OpenRouter request and return a readable result."""
+    api_key = str(FULL_API_KEY).strip()
+
+    if not api_key:
+        return "⚠️ The OpenRouter API key is empty. Check Streamlit Secrets."
+
+    # Keep the system prompt and only recent conversation messages.
+    # Shorter requests generally respond faster and use less free-tier capacity.
+    conversation_messages = []
+    for item in messages:
+        role = item.get("role")
+        content = item.get("content", "")
+        if role in ("user", "assistant") and content:
+            conversation_messages.append({
+                "role": role,
+                "content": str(content)
+            })
+
+    api_messages = [
+        {"role": "system", "content": TUTOR_PROMPT}
+    ] + conversation_messages[-10:]
+
+    payload = {
+        "model": "openrouter/free",
+        "messages": api_messages,
+        "max_tokens": 600,
+        "temperature": 0.4
+    }
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Title": "Exegesis AI"
+    }
+
+    try:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=(8, 30)
+        )
+    except requests.exceptions.ConnectTimeout:
+        return (
+            "⚠️ Exegesis AI could not connect to the AI service in time. "
+            "Please check your connection and try again."
+        )
+    except requests.exceptions.ReadTimeout:
+        return (
+            "⚠️ The AI service did not finish its reply within 30 seconds. "
+            "Please try again in a moment."
+        )
+    except requests.exceptions.Timeout:
+        return "⚠️ The AI request timed out. Please try again."
+    except requests.exceptions.ConnectionError:
+        return (
+            "⚠️ Exegesis AI could not reach OpenRouter. "
+            "Check your internet connection and try again."
+        )
+    except requests.exceptions.RequestException as error:
+        return (
+            "⚠️ A network problem interrupted the AI request "
+            f"({type(error).__name__}). Please try again."
+        )
+
+    try:
+        response_data = response.json()
+    except ValueError:
+        response_data = {}
+
+    if not isinstance(response_data, dict):
+        response_data = {}
+
+    if not response.ok:
+        error_data = response_data.get("error", {})
+        if isinstance(error_data, dict):
+            error_message = error_data.get("message", "No details provided")
+        else:
+            error_message = str(error_data)
+
+        if response.status_code == 401:
+            return (
+                "⚠️ OpenRouter rejected the API key. "
+                "Check OPENROUTER_API_KEY in Streamlit Secrets."
+            )
+        if response.status_code == 429:
+            return (
+                "⚠️ OpenRouter is rate-limiting requests right now. "
+                "Please wait a little and try again."
+            )
+        if response.status_code in (502, 503, 504):
+            return (
+                "⚠️ The free AI service is temporarily busy or unavailable. "
+                "Please try again shortly."
+            )
+
+        return (
+            f"⚠️ OpenRouter returned HTTP {response.status_code}: "
+            f"{error_message[:350]}"
+        )
+
+    choices = response_data.get("choices", [])
+    if not isinstance(choices, list) or not choices:
+        return (
+            "⚠️ OpenRouter did not return an answer. "
+            "The free model may be temporarily unavailable."
+        )
+
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        return "⚠️ OpenRouter returned an unexpected response format."
+
+    message_data = first_choice.get("message", {})
+    if not isinstance(message_data, dict):
+        return "⚠️ OpenRouter returned an unexpected message format."
+
+    answer = message_data.get("content", "")
+
+    if isinstance(answer, list):
+        text_parts = []
+        for part in answer:
+            if isinstance(part, dict):
+                text_parts.append(str(part.get("text", "")))
+            else:
+                text_parts.append(str(part))
+        answer = "\n".join(part for part in text_parts if part)
+
+    answer = str(answer).strip()
+    if not answer:
+        return "The AI service returned an empty answer. Please try again."
+
+    return answer
 
 
 # =====================================================================
@@ -1468,98 +1607,9 @@ def render_solo_study_chat():
         ]
 
         # -----------------------------------------------------------
-        # FIXED OPENROUTER COMMUNICATION
-        # -----------------------------------------------------------
+        # BOUNDED OPENROUTER REQUEST
         with st.spinner("Exegesis AI is thinking..."):
-
-            try:
-                resp = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-
-                    headers={
-                        "Authorization": f"Bearer {FULL_API_KEY}",
-                        "Content-Type": "application/json"
-                    },
-
-                    json={
-                        "model": "openrouter/free",
-                        "messages": chat_context
-                    },
-
-                    timeout=60
-                )
-
-                try:
-                    response_json = resp.json()
-                except ValueError:
-                    response_json = {}
-
-                if not resp.ok:
-
-                    error_data = response_json.get(
-                        "error",
-                        {}
-                    )
-
-                    if isinstance(error_data, dict):
-                        error_message = error_data.get(
-                            "message",
-                            str(error_data)
-                        )
-                    else:
-                        error_message = str(error_data)
-
-                    ai_reply = (
-                        f"⚠️ OpenRouter error ({resp.status_code}): "
-                        f"{error_message}"
-                    )
-
-                elif response_json.get("choices"):
-
-                    message_data = (
-                        response_json["choices"][0].get(
-                            "message",
-                            {}
-                        )
-                    )
-
-                    ai_reply = message_data.get(
-                        "content",
-                        ""
-                    )
-
-                    if isinstance(ai_reply, list):
-                        ai_reply = str(ai_reply)
-
-                    ai_reply = str(ai_reply).strip()
-
-                    if not ai_reply:
-                        ai_reply = (
-                            "The AI returned an empty response. "
-                            "Please try again."
-                        )
-
-                else:
-                    ai_reply = (
-                        "⚠️ No AI response received. "
-                        f"Details: {response_json}"
-                    )
-
-            except requests.Timeout:
-                ai_reply = (
-                    "⚠️ The AI service took too long to respond. "
-                    "Please try again."
-                )
-
-            except requests.RequestException as e:
-                ai_reply = (
-                    f"⚠️ Network connection problem: {e}"
-                )
-
-            except Exception as e:
-                ai_reply = (
-                    f"⚠️ Unexpected AI error: {e}"
-                )
+            ai_reply = get_exegesis_reply(chat_context)
 
         # -----------------------------------------------------------
         # IMPORTANT FIX: SAVE AND DISPLAY AI RESPONSE IMMEDIATELY
@@ -2029,7 +2079,7 @@ def render_group_study_chats():
                     "time": datetime.now(
                         timezone.utc
                     ).isoformat()
-                })
+                }, timeout=8)
 
                 # ----------------------------------------------------
                 # EXEGESIS AI GROUP CHAT RESPONSE
@@ -2039,99 +2089,12 @@ def render_group_study_chats():
                     with st.spinner(
                         "Exegesis AI is thinking..."
                     ):
-
-                        try:
-
-                            resp = requests.post(
-                                "https://openrouter.ai/api/v1/chat/completions",
-
-                                headers={
-                                    "Authorization": (
-                                        f"Bearer {FULL_API_KEY}"
-                                    ),
-                                    "Content-Type": "application/json"
-                                },
-
-                                json={
-                                    "model": "openrouter/free",
-                                    "messages": [
-                                        {
-                                            "role": "system",
-                                            "content": TUTOR_PROMPT
-                                        },
-                                        {
-                                            "role": "user",
-                                            "content": group_input
-                                        }
-                                    ]
-                                },
-
-                                timeout=60
-                            )
-
-                            g_resp_json = resp.json()
-
-                            if not resp.ok:
-
-                                error_data = g_resp_json.get(
-                                    "error",
-                                    {}
-                                )
-
-                                if isinstance(error_data, dict):
-                                    error_message = error_data.get(
-                                        "message",
-                                        str(error_data)
-                                    )
-                                else:
-                                    error_message = str(error_data)
-
-                                ai_help = (
-                                    f"OpenRouter error "
-                                    f"({resp.status_code}): "
-                                    f"{error_message}"
-                                )
-
-                            elif g_resp_json.get("choices"):
-
-                                ai_help = (
-                                    g_resp_json["choices"][0]
-                                    ["message"].get("content", "")
-                                )
-
-                                ai_help = str(ai_help).strip()
-
-                                if not ai_help:
-                                    ai_help = (
-                                        "I received an empty response. "
-                                        "Please try again."
-                                    )
-
-                            else:
-
-                                ai_help = (
-                                    "I'm having trouble receiving "
-                                    "an AI response right now."
-                                )
-
-                        except requests.Timeout:
-
-                            ai_help = (
-                                "The AI service took too long to respond. "
-                                "Please try again."
-                            )
-
-                        except requests.RequestException as e:
-
-                            ai_help = (
-                                f"Network connection problem: {e}"
-                            )
-
-                        except Exception as e:
-
-                            ai_help = (
-                                f"Unexpected AI error: {e}"
-                            )
+                        ai_help = get_exegesis_reply([
+                            {
+                                "role": "user",
+                                "content": group_input
+                            }
+                        ])
 
                     # SAVE AI RESPONSE TO FIRESTORE
                     group_ref.collection("messages").add({
@@ -2141,7 +2104,7 @@ def render_group_study_chats():
                         "time": datetime.now(
                             timezone.utc
                         ).isoformat()
-                    })
+                    }, timeout=8)
 
                 # REFRESH CHAT SO BOTH MESSAGES APPEAR
                 st.rerun()
