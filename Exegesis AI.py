@@ -10,6 +10,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone, timedelta, date
 import base64
+import json
+import streamlit.components.v1 as components
 
 # --- Streamlit Page Configuration ---
 st.set_page_config(
@@ -76,6 +78,7 @@ def save_user_session():
                 "parent_mode": st.session_state.get("parent_mode", ""),
                 "profile_pic": st.session_state.get("profile_pic", ""),
                 "user_city": st.session_state.get("user_city", "London"),
+                "tutor_prompt": st.session_state.get("tutor_prompt", TUTOR_PROMPT),
                 "last_active": datetime.now(timezone.utc).isoformat()
             }, merge=True)
         except Exception as e:
@@ -122,8 +125,55 @@ TUTOR_PROMPT = (
     "4. If tagged as @exegesis in group chats, help solve doubts step-by-step with guidance rather than full answers.\n"
     "5. Never disclose private creator information.\n"
     "6. For creative classroom tasks such as SST skits, roleplays, debates, speeches, and presentations, do not simply produce a finished submission. Help the student plan and write it themselves with a clear structure, character ideas, dialogue suggestions, stage-direction ideas, and step-by-step guidance. Ask only for details that are essential. Never answer with 'None' or an empty response.\n"
-    "7. If a request is broad, suggest a useful starting structure and explain how the student can develop it; offer to review or improve the student's own draft."
+    "7. If a request is broad, suggest a useful starting structure and explain how the student can develop it; offer to review or improve the student's own draft.\n"
+    "8. HINT-FIRST MODE FOR STUDY QUESTIONS ONLY: When the student asks a schoolwork, homework, quiz, exam-practice, or learning question that tests a concept, definition, explanation, or a problem-solving skill, do not immediately reveal the answer. Give exactly ONE useful hint, then ask the student to try. Wait for the student's next message before giving another hint. If the attempt is incorrect, incomplete, or the student says they do not know, give Hint 2 only, then wait. After another unsuccessful attempt, give Hint 3 only, then wait for one final attempt. Each hint must become more helpful but must NOT contain the answer, spell it out, give its initials, or directly reveal it. Never give all three hints in one message. If the student answers correctly at any stage, acknowledge that and explain briefly why it is correct. After the third hint and the student's final attempt (or if the student explicitly asks to reveal the answer), explain the underlying concept in simple, grade-appropriate language FIRST; only after that explanation, state the correct answer clearly and explain why it is correct. Track which hint number has already been given in the conversation and do not restart at Hint 1 for the same question. Start a fresh hint sequence for a genuinely new study question.\n"
+    "9. DO NOT USE HINT-FIRST MODE for ordinary factual lookups or quick-reference questions that ask for a specific fact, quantity, measurement, distance, time, date, location, conversion, or current information. Answer these directly and clearly. For example, if asked 'What is the distance from Earth to the Moon?', provide the approximate distance directly rather than giving hints. Do not turn every question into a quiz. If it is unclear whether the student wants tutoring or a direct fact, prefer answering a straightforward factual lookup directly.\n"
+    "10. The hint-first rule applies in both solo chats and group chats when responding to a student. Safety-critical or urgent questions must always receive necessary information immediately, without a hint sequence.\n"
+    "11. Never mention, display, or summarize how many hints have been used. Do not include a hint-count label or status line; simply give the next hint or explanation naturally."
 )
+
+
+
+def get_active_tutor_prompt():
+    """Return the signed-in user's editable tutor instructions."""
+    return st.session_state.get("tutor_prompt", TUTOR_PROMPT)
+
+
+def render_speaker_button(answer_text, key="ai_answer"):
+    """Render a browser text-to-speech button; audio plays through the device output."""
+    safe_text = json.dumps(str(answer_text or ""))
+    safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
+    html = f"""
+    <div style="display:flex;align-items:center;gap:8px;margin:2px 0 8px 0;">
+      <button id="speak_{safe_key}" type="button"
+        aria-label="Speak this AI answer"
+        style="border:1px solid #888;border-radius:20px;padding:5px 12px;
+               background:transparent;color:inherit;cursor:pointer;font-size:16px;">
+        🔊
+      </button>
+      <span id="status_{safe_key}" style="font-size:12px;color:gray;"></span>
+    </div>
+    <script>
+      const textToSpeak = {safe_text};
+      const speakButton = document.getElementById("speak_{safe_key}");
+      const statusLabel = document.getElementById("status_{safe_key}");
+      speakButton.addEventListener("click", () => {{
+        if (!("speechSynthesis" in window)) {{
+          statusLabel.textContent = "Speech is not supported by this browser.";
+          return;
+        }}
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        utterance.rate = 1;
+        utterance.pitch = 1;
+        utterance.onstart = () => {{ statusLabel.textContent = "Speaking…"; }};
+        utterance.onend = () => {{ statusLabel.textContent = ""; }};
+        utterance.onerror = () => {{ statusLabel.textContent = "Could not play speech."; }};
+        window.speechSynthesis.speak(utterance);
+      }});
+    </script>
+    """
+    components.html(html, height=48)
 
 
 # =====================================================================
@@ -157,6 +207,8 @@ if "app_mode" not in st.session_state:
     st.session_state["app_mode"] = "Solo Study / AI Chat"
 if "parent_verified" not in st.session_state:
     st.session_state["parent_verified"] = False
+if "tutor_prompt" not in st.session_state:
+    st.session_state["tutor_prompt"] = TUTOR_PROMPT
 
 
 # =====================================================================
@@ -199,6 +251,7 @@ def _attempt_login(username, password):
     st.session_state["friends"] = user_data.get("friends", [])
     st.session_state["nicknames"] = user_data.get("nicknames", {})
     st.session_state["user_city"] = user_data.get("user_city", "London")
+    st.session_state["tutor_prompt"] = user_data.get("tutor_prompt", TUTOR_PROMPT)
     st.session_state["profile_pic"] = user_data.get("profile_pic", "")
     st.session_state["logged_in"] = True
     save_user_session()
@@ -979,6 +1032,34 @@ with st.sidebar:
 
     st.markdown("---")
 
+    with st.expander("🛠️ Edit AI Tutor Prompt"):
+        st.caption(
+            "Customize the instructions Exegesis AI follows in solo and group chats. "
+            "Your changes are saved to your account."
+        )
+        edited_tutor_prompt = st.text_area(
+            "AI instructions",
+            value=get_active_tutor_prompt(),
+            height=260,
+            key=f"tutor_prompt_editor_{hash(get_active_tutor_prompt())}"
+        )
+        prompt_col1, prompt_col2 = st.columns(2)
+        with prompt_col1:
+            if st.button("Save Prompt", use_container_width=True):
+                if edited_tutor_prompt.strip():
+                    st.session_state["tutor_prompt"] = edited_tutor_prompt.strip()
+                    save_user_session()
+                    st.success("AI prompt saved.")
+                    st.rerun()
+                else:
+                    st.error("The prompt cannot be empty.")
+        with prompt_col2:
+            if st.button("Reset Prompt", use_container_width=True):
+                st.session_state["tutor_prompt"] = TUTOR_PROMPT
+                save_user_session()
+                st.success("Default prompt restored.")
+                st.rerun()
+
     st.subheader("🌤️ Weather Report")
 
     user_location = st.text_input(
@@ -1338,6 +1419,8 @@ def render_solo_study_chat():
             msg["role"],
             avatar=avatar_img
         ):
+            if msg["role"] == "assistant":
+                render_speaker_button(msg["content"], key=f"solo_history_{len(st.session_state['messages'])}_{hash(str(msg['content']))}")
             st.markdown(msg["content"])
 
             if msg.get("file_data"):
@@ -1360,6 +1443,7 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # CHAT INPUT
     # ---------------------------------------------------------------
+    st.caption("Exegesis AI can make mistakes. Double-check important information.")
     # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
     prompt = st.chat_input(
         "Ask a study question... (press Enter to send) 💬",
@@ -1465,6 +1549,7 @@ def render_solo_study_chat():
             })
 
             with st.chat_message("assistant"):
+                render_speaker_button(reply, key="solo_safety_reply")
                 st.markdown(reply)
 
             save_user_session()
@@ -1479,7 +1564,7 @@ def render_solo_study_chat():
         chat_context = [
             {
                 "role": "system",
-                "content": TUTOR_PROMPT
+                "content": get_active_tutor_prompt()
             }
         ] + [
             {
@@ -1598,6 +1683,7 @@ def render_solo_study_chat():
         })
 
         with st.chat_message("assistant"):
+            render_speaker_button(ai_reply, key="solo_latest_reply")
             st.markdown(ai_reply)
 
         save_user_session()
@@ -2085,11 +2171,14 @@ def render_group_study_chats():
                     else:
                         st.write("🤖" if sender_username == "exegesis_ai" else "👤")
                 with message_col:
+                    if sender_username == "exegesis_ai":
+                        render_speaker_button(m.get("text", ""), key=f"group_{group_ref.id}_{msg.id}")
                     st.markdown(f"**{sender_display}**: {m.get('text', '')}")
 
         # --------------------------------------------------------
         # GROUP CHAT INPUT
         # --------------------------------------------------------
+        st.caption("Exegesis AI can make mistakes. Double-check important information.")
         # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
         group_input = st.chat_input(
             "Message group... (press Enter to send) 💬",
@@ -2141,12 +2230,23 @@ def render_group_study_chats():
                                 "messages": [
                                     {
                                         "role": "system",
-                                        "content": TUTOR_PROMPT
-                                    },
-                                    {
-                                        "role": "user",
-                                        "content": group_input
+                                        "content": get_active_tutor_prompt()
                                     }
+                                ] + [
+                                    {
+                                        "role": (
+                                            "assistant"
+                                            if room_message.to_dict().get("sender_username") == "exegesis_ai"
+                                            else "user"
+                                        ),
+                                        "content": str(room_message.to_dict().get("text", ""))
+                                    }
+                                    for room_message in list(
+                                        group_ref.collection("messages")
+                                        .order_by("time")
+                                        .stream()
+                                    )[-30:]
+                                    if room_message.to_dict().get("text")
                                 ]
                             },
 
