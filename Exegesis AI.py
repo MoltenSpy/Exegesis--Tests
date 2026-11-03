@@ -1302,26 +1302,16 @@ if user_role == "Teacher Portal":
 # =====================================================================
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
-def _streamlit_fragment(func):
-    """Use Streamlit fragments when supported; otherwise keep normal behavior."""
-    fragment_api = getattr(st, "fragment", None)
-    return fragment_api(func) if callable(fragment_api) else func
-
-
 def _rerun_current_chat_fragment():
-    """Refresh only the active chat fragment on modern Streamlit versions."""
-    if callable(getattr(st, "fragment", None)):
-        st.rerun(scope="fragment")
-    else:
-        st.rerun()
+    """Refresh the normal Streamlit app after a group chat update."""
+    st.rerun()
 
 
-# Use Streamlit's native chat_input placement, as in the original app.
-# Do not override its position with fixed CSS: Streamlit places it at the
-# bottom of the main app area and adjusts it when the sidebar opens/closes.
+# Keep both chat renderers in the normal app layout. Streamlit's native
+# st.chat_input then anchors to the viewport bottom and automatically uses
+# the available main-area width as the sidebar expands or contracts.
 
 
-@_streamlit_fragment
 def render_solo_study_chat():
 
     st.title(f"Hello {st.session_state['full_name']}!")
@@ -1614,7 +1604,6 @@ def render_solo_study_chat():
         # =====================================================================
 # SECTION 16: COLLABORATIVE STUDY GROUPS & NICKNAMES
 # =====================================================================
-@_streamlit_fragment
 def render_group_study_chats():
 
     st.title(
