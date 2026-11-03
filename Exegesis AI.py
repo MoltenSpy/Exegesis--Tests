@@ -77,7 +77,7 @@ def save_user_session():
                 "profile_pic": st.session_state.get("profile_pic", ""),
                 "user_city": st.session_state.get("user_city", "London"),
                 "last_active": datetime.now(timezone.utc).isoformat()
-            }, merge=True, timeout=8)
+            }, merge=True)
         except Exception as e:
             st.warning(f"Could not save your session: {e}")
 
@@ -116,151 +116,14 @@ def get_weather(city_name):
 # =====================================================================
 TUTOR_PROMPT = (
     "You are Exegesis AI, a supportive and friendly AI built for school students.\n"
-    "1. For study questions, homework, or reports: Act as a helpful tutor using scaffolding. If a user asks you to generate a whole report, essay, or complete assignment, you must say: 'I will not generate the whole thing, but I can help you write it!' Then provide helpful information, outlines, and points to expand upon.\n"
+    "1. Do not claim to generate finished work on the student's behalf. When asked to generate something, say: 'I cannot generate it for you, but I will help you write it and guide you through doing it.' Then give practical, step-by-step help, ideas, outlines, examples, and feedback so the student can create their own work.\n"
     "2. When reviewing uploaded images, videos, documents, Word files, or presentations, observe everything visible and detail what you notice.\n"
     "3. For general conversation or emotional support: Act like a warm, supportive friend.\n"
     "4. If tagged as @exegesis in group chats, help solve doubts step-by-step with guidance rather than full answers.\n"
-    "5. Never disclose private creator information."
+    "5. Never disclose private creator information.\n"
+    "6. For creative classroom tasks such as SST skits, roleplays, debates, speeches, and presentations, do not simply produce a finished submission. Help the student plan and write it themselves with a clear structure, character ideas, dialogue suggestions, stage-direction ideas, and step-by-step guidance. Ask only for details that are essential. Never answer with 'None' or an empty response.\n"
+    "7. If a request is broad, suggest a useful starting structure and explain how the student can develop it; offer to review or improve the student's own draft."
 )
-
-
-
-# =====================================================================
-# SECTION 5A: RELIABLE OPENROUTER REQUEST HANDLER
-# =====================================================================
-def get_exegesis_reply(messages):
-    """Make a bounded OpenRouter request and return a readable result."""
-    api_key = str(FULL_API_KEY).strip()
-
-    if not api_key:
-        return "⚠️ The OpenRouter API key is empty. Check Streamlit Secrets."
-
-    # Keep the system prompt and only recent conversation messages.
-    # Shorter requests generally respond faster and use less free-tier capacity.
-    conversation_messages = []
-    for item in messages:
-        role = item.get("role")
-        content = item.get("content", "")
-        if role in ("user", "assistant") and content:
-            conversation_messages.append({
-                "role": role,
-                "content": str(content)
-            })
-
-    api_messages = [
-        {"role": "system", "content": TUTOR_PROMPT}
-    ] + conversation_messages[-10:]
-
-    payload = {
-        "model": "openrouter/free",
-        "messages": api_messages,
-        "max_tokens": 600,
-        "temperature": 0.4
-    }
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "X-Title": "Exegesis AI"
-    }
-
-    try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=(8, 30)
-        )
-    except requests.exceptions.ConnectTimeout:
-        return (
-            "⚠️ Exegesis AI could not connect to the AI service in time. "
-            "Please check your connection and try again."
-        )
-    except requests.exceptions.ReadTimeout:
-        return (
-            "⚠️ The AI service did not finish its reply within 30 seconds. "
-            "Please try again in a moment."
-        )
-    except requests.exceptions.Timeout:
-        return "⚠️ The AI request timed out. Please try again."
-    except requests.exceptions.ConnectionError:
-        return (
-            "⚠️ Exegesis AI could not reach OpenRouter. "
-            "Check your internet connection and try again."
-        )
-    except requests.exceptions.RequestException as error:
-        return (
-            "⚠️ A network problem interrupted the AI request "
-            f"({type(error).__name__}). Please try again."
-        )
-
-    try:
-        response_data = response.json()
-    except ValueError:
-        response_data = {}
-
-    if not isinstance(response_data, dict):
-        response_data = {}
-
-    if not response.ok:
-        error_data = response_data.get("error", {})
-        if isinstance(error_data, dict):
-            error_message = error_data.get("message", "No details provided")
-        else:
-            error_message = str(error_data)
-
-        if response.status_code == 401:
-            return (
-                "⚠️ OpenRouter rejected the API key. "
-                "Check OPENROUTER_API_KEY in Streamlit Secrets."
-            )
-        if response.status_code == 429:
-            return (
-                "⚠️ OpenRouter is rate-limiting requests right now. "
-                "Please wait a little and try again."
-            )
-        if response.status_code in (502, 503, 504):
-            return (
-                "⚠️ The free AI service is temporarily busy or unavailable. "
-                "Please try again shortly."
-            )
-
-        return (
-            f"⚠️ OpenRouter returned HTTP {response.status_code}: "
-            f"{error_message[:350]}"
-        )
-
-    choices = response_data.get("choices", [])
-    if not isinstance(choices, list) or not choices:
-        return (
-            "⚠️ OpenRouter did not return an answer. "
-            "The free model may be temporarily unavailable."
-        )
-
-    first_choice = choices[0]
-    if not isinstance(first_choice, dict):
-        return "⚠️ OpenRouter returned an unexpected response format."
-
-    message_data = first_choice.get("message", {})
-    if not isinstance(message_data, dict):
-        return "⚠️ OpenRouter returned an unexpected message format."
-
-    answer = message_data.get("content", "")
-
-    if isinstance(answer, list):
-        text_parts = []
-        for part in answer:
-            if isinstance(part, dict):
-                text_parts.append(str(part.get("text", "")))
-            else:
-                text_parts.append(str(part))
-        answer = "\n".join(part for part in text_parts if part)
-
-    answer = str(answer).strip()
-    if not answer:
-        return "The AI service returned an empty answer. Please try again."
-
-    return answer
 
 
 # =====================================================================
@@ -560,8 +423,8 @@ if user_doc_snapshot.exists:
             bday_date.month == today_date.month
             and bday_date.day == today_date.day
         ):
-            st.balloons()
             st.success("🎉 Happy Birthday! Wishing you an amazing day!")
+            st.balloons()
 
             current_age = today_date.year - bday_date.year
 
@@ -1430,6 +1293,21 @@ if user_role == "Teacher Portal":
 # =====================================================================
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
+def _streamlit_fragment(func):
+    """Use Streamlit fragments when supported; otherwise keep normal behavior."""
+    fragment_api = getattr(st, "fragment", None)
+    return fragment_api(func) if callable(fragment_api) else func
+
+
+def _rerun_current_chat_fragment():
+    """Refresh only the active chat fragment on modern Streamlit versions."""
+    if callable(getattr(st, "fragment", None)):
+        st.rerun(scope="fragment")
+    else:
+        st.rerun()
+
+
+@_streamlit_fragment
 def render_solo_study_chat():
 
     st.title(f"Hello {st.session_state['full_name']}!")
@@ -1478,8 +1356,9 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # CHAT INPUT
     # ---------------------------------------------------------------
+    # Streamlit chat_input submits the message when the user presses Enter.
     prompt = st.chat_input(
-        "Ask a study question... 💬",
+        "Ask a study question... (press Enter to send) 💬",
         accept_file=True,
         file_type=[
             "png", "jpg", "jpeg",
@@ -1607,9 +1486,104 @@ def render_solo_study_chat():
         ]
 
         # -----------------------------------------------------------
-        # BOUNDED OPENROUTER REQUEST
+        # FIXED OPENROUTER COMMUNICATION
+        # -----------------------------------------------------------
         with st.spinner("Exegesis AI is thinking..."):
-            ai_reply = get_exegesis_reply(chat_context)
+
+            try:
+                resp = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+
+                    headers={
+                        "Authorization": f"Bearer {FULL_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+
+                    json={
+                        "model": "openrouter/free",
+                        "messages": chat_context
+                    },
+
+                    timeout=60
+                )
+
+                try:
+                    response_json = resp.json()
+                except ValueError:
+                    response_json = {}
+
+                if not resp.ok:
+
+                    error_data = response_json.get(
+                        "error",
+                        {}
+                    )
+
+                    if isinstance(error_data, dict):
+                        error_message = error_data.get(
+                            "message",
+                            str(error_data)
+                        )
+                    else:
+                        error_message = str(error_data)
+
+                    ai_reply = (
+                        f"⚠️ OpenRouter error ({resp.status_code}): "
+                        f"{error_message}"
+                    )
+
+                elif response_json.get("choices"):
+
+                    message_data = (
+                        response_json["choices"][0].get(
+                            "message",
+                            {}
+                        )
+                    )
+
+                    ai_reply = message_data.get("content")
+
+                    if isinstance(ai_reply, list):
+                        text_parts = []
+                        for part in ai_reply:
+                            if isinstance(part, dict) and part.get("text"):
+                                text_parts.append(str(part["text"]))
+                            elif isinstance(part, str):
+                                text_parts.append(part)
+                        ai_reply = "\n".join(text_parts)
+
+                    if ai_reply is None:
+                        ai_reply = ""
+
+                    ai_reply = str(ai_reply).strip()
+
+                    if not ai_reply or ai_reply.lower() == "none":
+                        ai_reply = (
+                            "I didn't receive a usable answer from the AI service. "
+                            "Please try asking again in a moment."
+                        )
+
+                else:
+                    ai_reply = (
+                        "⚠️ No AI response received. "
+                        f"Details: {response_json}"
+                    )
+
+            except requests.Timeout:
+                ai_reply = (
+                    "⚠️ The AI service took too long to respond. "
+                    "Please try again."
+                )
+
+            except requests.RequestException as e:
+                ai_reply = (
+                    f"⚠️ Network connection problem: {e}"
+                )
+
+            except Exception as e:
+                ai_reply = (
+                    f"⚠️ Unexpected AI error: {e}"
+                )
 
         # -----------------------------------------------------------
         # IMPORTANT FIX: SAVE AND DISPLAY AI RESPONSE IMMEDIATELY
@@ -1626,6 +1600,7 @@ def render_solo_study_chat():
         # =====================================================================
 # SECTION 16: COLLABORATIVE STUDY GROUPS & NICKNAMES
 # =====================================================================
+@_streamlit_fragment
 def render_group_study_chats():
 
     st.title(
@@ -1644,30 +1619,85 @@ def render_group_study_chats():
     # ================================================================
     with tab1:
 
-        st.subheader("Add Friend (Requires Full Name)")
+        st.subheader("Add Friend")
 
-        target_fullname = st.text_input(
-            "Enter Peer's Exact Full Name"
+        target_username = st.text_input(
+            "Enter their username",
+            key="friend_username_input",
+            placeholder="Exact username"
         )
 
         if st.button("Send Friend Request"):
+            clean_target_username = target_username.strip()
 
-            if not target_fullname.strip():
-                st.error("Please enter a valid full name.")
-
+            if not clean_target_username:
+                st.error("Please enter a username.")
+            elif clean_target_username == user_name:
+                st.warning("You cannot send a friend request to yourself.")
             else:
-                db.collection("friend_requests").add({
-                    "from_user": user_name,
-                    "from_fullname": st.session_state["full_name"],
-                    "to_fullname": target_fullname.strip(),
-                    "status": "pending"
-                })
+                target_ref, target_doc = get_user_doc(clean_target_username)
 
-                st.success("Friend request sent!")
-                st.rerun()
+                if not target_doc.exists:
+                    st.error(
+                        "No account was found with that username. "
+                        "Check the spelling and try again."
+                    )
+                else:
+                    target_data = target_doc.to_dict()
+                    target_fullname = target_data.get(
+                        "full_name", clean_target_username
+                    )
+
+                    existing_requests = list(
+                        db.collection("friend_requests").stream()
+                    )
+                    already_connected = False
+                    pending_exists = False
+
+                    for existing in existing_requests:
+                        existing_data = existing.to_dict()
+                        same_pair = (
+                            existing_data.get("from_user") == user_name
+                            and existing_data.get("to_user") == clean_target_username
+                        ) or (
+                            existing_data.get("from_user") == clean_target_username
+                            and existing_data.get("to_user") == user_name
+                        )
+
+                        # Support friend requests created by older app versions.
+                        if not same_pair:
+                            same_pair = (
+                                existing_data.get("from_fullname") == st.session_state["full_name"]
+                                and existing_data.get("to_fullname") == target_fullname
+                            ) or (
+                                existing_data.get("from_fullname") == target_fullname
+                                and existing_data.get("to_fullname") == st.session_state["full_name"]
+                            )
+
+                        if same_pair:
+                            if existing_data.get("status") == "accepted":
+                                already_connected = True
+                            elif existing_data.get("status") == "pending":
+                                pending_exists = True
+
+                    if already_connected:
+                        st.info("You are already friends with this user.")
+                    elif pending_exists:
+                        st.info("A friend request for this user is already pending.")
+                    else:
+                        db.collection("friend_requests").add({
+                            "from_user": user_name,
+                            "from_fullname": st.session_state["full_name"],
+                            "to_user": clean_target_username,
+                            "to_fullname": target_fullname,
+                            "status": "pending",
+                            "time": datetime.now(timezone.utc).isoformat()
+                        })
+                        st.success(f"Friend request sent to @{clean_target_username}!")
+                        st.rerun()
 
         st.subheader(
-            "Your Friends & Roblox-Style Nicknames 🏷️"
+            "Your Friends"
         )
 
         accepted_reqs = db.collection(
@@ -2001,64 +2031,46 @@ def render_group_study_chats():
                 .stream()
             )
 
+            profile_pic_cache = {user_name: st.session_state.get("profile_pic", "")}
+
             for msg in room_msgs:
-
                 m = msg.to_dict()
+                sender_username = m.get("sender_username", "")
+                sender_name = m.get("sender", "Unknown")
 
-                is_me = (
-                    m["sender"]
-                    == st.session_state["full_name"]
+                is_me = sender_username == user_name
+                chat_role = "user" if is_me else "assistant"
+                sender_display = st.session_state["nicknames"].get(
+                    sender_name, sender_name
                 )
 
-                chat_role = (
-                    "user" if is_me else "assistant"
-                )
-
-                sender_display = st.session_state[
-                    "nicknames"
-                ].get(m["sender"], m["sender"])
-
-                msg_avatar = None
-
-                if is_me:
-
-                    msg_avatar = st.session_state.get(
-                        "profile_pic",
-                        None
-                    )
-
-                else:
-
+                # Look up each sender's saved profile picture once per page run.
+                msg_avatar = profile_pic_cache.get(sender_username, "")
+                if not msg_avatar and sender_username and sender_username != "exegesis_ai":
                     try:
-
-                        u_ref, u_snap = get_user_doc(
-                            m.get("sender_username", "")
-                        )
-
-                        if u_snap.exists:
-
-                            msg_avatar = u_snap.to_dict().get(
-                                "profile_pic",
-                                None
-                            )
-
+                        _, sender_doc = get_user_doc(sender_username)
+                        if sender_doc.exists:
+                            msg_avatar = sender_doc.to_dict().get("profile_pic", "") or ""
+                        profile_pic_cache[sender_username] = msg_avatar
                     except Exception:
-                        pass
+                        profile_pic_cache[sender_username] = ""
 
-                with st.chat_message(
-                    chat_role,
-                    avatar=msg_avatar
-                ):
-
-                    st.markdown(
-                        f"**{sender_display}**: {m['text']}"
-                    )
+                with st.chat_message(chat_role):
+                    avatar_col, message_col = st.columns([0.10, 0.90])
+                    with avatar_col:
+                        if msg_avatar:
+                            st.image(msg_avatar, width=42)
+                        else:
+                            st.write("🤖" if sender_username == "exegesis_ai" else "👤")
+                    with message_col:
+                        st.markdown(f"**{sender_display}**: {m.get('text', '')}")
 
             # --------------------------------------------------------
             # GROUP CHAT INPUT
             # --------------------------------------------------------
+            # Streamlit chat_input submits the message when the user presses Enter.
             group_input = st.chat_input(
-                "Message group... 💬",
+                "Message group... (press Enter to send) 💬",
                 key="group_chat_input_box"
             )
 
@@ -2079,7 +2091,7 @@ def render_group_study_chats():
                     "time": datetime.now(
                         timezone.utc
                     ).isoformat()
-                }, timeout=8)
+                })
 
                 # ----------------------------------------------------
                 # EXEGESIS AI GROUP CHAT RESPONSE
@@ -2089,12 +2101,102 @@ def render_group_study_chats():
                     with st.spinner(
                         "Exegesis AI is thinking..."
                     ):
-                        ai_help = get_exegesis_reply([
-                            {
-                                "role": "user",
-                                "content": group_input
-                            }
-                        ])
+
+                        try:
+
+                            resp = requests.post(
+                                "https://openrouter.ai/api/v1/chat/completions",
+
+                                headers={
+                                    "Authorization": (
+                                        f"Bearer {FULL_API_KEY}"
+                                    ),
+                                    "Content-Type": "application/json"
+                                },
+
+                                json={
+                                    "model": "openrouter/free",
+                                    "messages": [
+                                        {
+                                            "role": "system",
+                                            "content": TUTOR_PROMPT
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": group_input
+                                        }
+                                    ]
+                                },
+
+                                timeout=60
+                            )
+
+                            g_resp_json = resp.json()
+
+                            if not resp.ok:
+
+                                error_data = g_resp_json.get(
+                                    "error",
+                                    {}
+                                )
+
+                                if isinstance(error_data, dict):
+                                    error_message = error_data.get(
+                                        "message",
+                                        str(error_data)
+                                    )
+                                else:
+                                    error_message = str(error_data)
+
+                                ai_help = (
+                                    f"OpenRouter error "
+                                    f"({resp.status_code}): "
+                                    f"{error_message}"
+                                )
+
+                            elif g_resp_json.get("choices"):
+
+                                ai_help = (
+                                    g_resp_json["choices"][0]
+                                    ["message"].get("content")
+                                )
+
+                                if ai_help is None:
+                                    ai_help = ""
+
+                                ai_help = str(ai_help).strip()
+
+                                if not ai_help or ai_help.lower() == "none":
+                                    ai_help = (
+                                        "I received an empty response. "
+                                        "Please try again."
+                                    )
+
+                            else:
+
+                                ai_help = (
+                                    "I'm having trouble receiving "
+                                    "an AI response right now."
+                                )
+
+                        except requests.Timeout:
+
+                            ai_help = (
+                                "The AI service took too long to respond. "
+                                "Please try again."
+                            )
+
+                        except requests.RequestException as e:
+
+                            ai_help = (
+                                f"Network connection problem: {e}"
+                            )
+
+                        except Exception as e:
+
+                            ai_help = (
+                                f"Unexpected AI error: {e}"
+                            )
 
                     # SAVE AI RESPONSE TO FIRESTORE
                     group_ref.collection("messages").add({
@@ -2104,10 +2206,10 @@ def render_group_study_chats():
                         "time": datetime.now(
                             timezone.utc
                         ).isoformat()
-                    }, timeout=8)
+                    })
 
-                # REFRESH CHAT SO BOTH MESSAGES APPEAR
-                st.rerun()
+                # Refresh only this chat fragment so the whole page does not flash.
+                _rerun_current_chat_fragment()
 
 
 # =====================================================================
