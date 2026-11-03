@@ -139,38 +139,73 @@ def get_active_tutor_prompt():
     return st.session_state.get("tutor_prompt", TUTOR_PROMPT)
 
 
-def render_speaker_button(answer_text, key="ai_answer"):
-    """Render a browser text-to-speech button; audio plays through the device output."""
+def render_answer_actions(answer_text, key="ai_answer"):
+    """Render sleek copy and text-to-speech controls beneath an AI answer."""
     safe_text = json.dumps(str(answer_text or ""))
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
     html = f"""
-    <div style="display:flex;align-items:center;gap:8px;margin:2px 0 8px 0;">
-      <button id="speak_{safe_key}" type="button"
-        aria-label="Speak this AI answer"
-        style="border:1px solid #888;border-radius:20px;padding:5px 12px;
-               background:transparent;color:inherit;cursor:pointer;font-size:16px;">
-        🔊
+    <div style="display:flex;align-items:center;gap:7px;margin:7px 0 12px 0;
+                font-family:Arial,sans-serif;">
+      <button id="speak_{safe_key}" type="button" title="Listen to answer"
+        style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(128,128,128,.35);
+               border-radius:18px;padding:6px 11px;background:transparent;color:inherit;
+               cursor:pointer;font-size:13px;">
+        <span style="font-size:15px;">🔊</span><span>Listen</span>
       </button>
-      <span id="status_{safe_key}" style="font-size:12px;color:gray;"></span>
+      <button id="copy_{safe_key}" type="button" title="Copy answer"
+        style="display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(128,128,128,.35);
+               border-radius:18px;padding:6px 11px;background:transparent;color:inherit;
+               cursor:pointer;font-size:13px;">
+        <span style="font-size:14px;">⧉</span><span>Copy</span>
+      </button>
+      <span id="status_{safe_key}" aria-live="polite" style="font-size:12px;opacity:.7;"></span>
     </div>
     <script>
-      const textToSpeak = {safe_text};
-      const speakButton = document.getElementById("speak_{safe_key}");
-      const statusLabel = document.getElementById("status_{safe_key}");
-      speakButton.addEventListener("click", () => {{
-        if (!("speechSynthesis" in window)) {{
-          statusLabel.textContent = "Speech is not supported by this browser.";
-          return;
-        }}
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.rate = 1;
-        utterance.pitch = 1;
-        utterance.onstart = () => {{ statusLabel.textContent = "Speaking…"; }};
-        utterance.onend = () => {{ statusLabel.textContent = ""; }};
-        utterance.onerror = () => {{ statusLabel.textContent = "Could not play speech."; }};
-        window.speechSynthesis.speak(utterance);
-      }});
+      (() => {{
+        const answerText = {safe_text};
+        const speakButton = document.getElementById("speak_{safe_key}");
+        const copyButton = document.getElementById("copy_{safe_key}");
+        const statusLabel = document.getElementById("status_{safe_key}");
+        speakButton.addEventListener("click", () => {{
+          if (!("speechSynthesis" in window)) {{
+            statusLabel.textContent = "Speech isn't supported in this browser.";
+            return;
+          }}
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(answerText);
+          utterance.rate = 1;
+          utterance.pitch = 1;
+          utterance.onstart = () => {{ statusLabel.textContent = "Speaking…"; }};
+          utterance.onend = () => {{ statusLabel.textContent = ""; }};
+          utterance.onerror = () => {{ statusLabel.textContent = "Couldn't play audio."; }};
+          window.speechSynthesis.speak(utterance);
+        }});
+        copyButton.addEventListener("click", async () => {{
+          try {{
+            if (navigator.clipboard && window.isSecureContext) {{
+              await navigator.clipboard.writeText(answerText);
+            }} else {{
+              const temp = document.createElement("textarea");
+              temp.value = answerText;
+              temp.style.position = "fixed";
+              temp.style.opacity = "0";
+              document.body.appendChild(temp);
+              temp.select();
+              const ok = document.execCommand("copy");
+              temp.remove();
+              if (!ok) throw new Error("Copy failed");
+            }}
+            statusLabel.textContent = "Copied!";
+            copyButton.querySelector("span:last-child").textContent = "Copied";
+            setTimeout(() => {{
+              statusLabel.textContent = "";
+              copyButton.querySelector("span:last-child").textContent = "Copy";
+            }}, 1400);
+          }} catch (error) {{
+            statusLabel.textContent = "Couldn't copy. Select the answer to copy it.";
+          }}
+        }});
+      }})();
     </script>
     """
     components.html(html, height=48)
@@ -1419,9 +1454,9 @@ def render_solo_study_chat():
             msg["role"],
             avatar=avatar_img
         ):
-            if msg["role"] == "assistant":
-                render_speaker_button(msg["content"], key=f"solo_history_{len(st.session_state['messages'])}_{hash(str(msg['content']))}")
             st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                render_answer_actions(msg["content"], key=f"solo_history_{len(st.session_state['messages'])}_{hash(str(msg['content']))}")
 
             if msg.get("file_data"):
 
@@ -1549,8 +1584,8 @@ def render_solo_study_chat():
             })
 
             with st.chat_message("assistant"):
-                render_speaker_button(reply, key="solo_safety_reply")
                 st.markdown(reply)
+                render_answer_actions(reply, key="solo_safety_reply")
 
             save_user_session()
             return
@@ -1683,8 +1718,8 @@ def render_solo_study_chat():
         })
 
         with st.chat_message("assistant"):
-            render_speaker_button(ai_reply, key="solo_latest_reply")
             st.markdown(ai_reply)
+            render_answer_actions(ai_reply, key="solo_latest_reply")
 
         save_user_session()
         # =====================================================================
@@ -2171,9 +2206,9 @@ def render_group_study_chats():
                     else:
                         st.write("🤖" if sender_username == "exegesis_ai" else "👤")
                 with message_col:
-                    if sender_username == "exegesis_ai":
-                        render_speaker_button(m.get("text", ""), key=f"group_{group_ref.id}_{msg.id}")
                     st.markdown(f"**{sender_display}**: {m.get('text', '')}")
+                    if sender_username == "exegesis_ai":
+                        render_answer_actions(m.get("text", ""), key=f"group_{group_ref.id}_{msg.id}")
 
         # --------------------------------------------------------
         # GROUP CHAT INPUT
