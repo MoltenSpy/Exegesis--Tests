@@ -1316,39 +1316,9 @@ def _rerun_current_chat_fragment():
         st.rerun()
 
 
-# Keep chat composers pinned to the bottom while accounting for the sidebar.
-# Streamlit's native chat_input placement is not consistently viewport-fixed
-# when rendered inside fragments/tabs, so apply a responsive fixed position.
-st.markdown("""
-<style>
-  div[data-testid="stChatInput"] {
-    position: fixed !important;
-    bottom: 1rem !important;
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: min(60rem, calc(100vw - 2rem)) !important;
-    z-index: 1000 !important;
-    background: var(--background-color) !important;
-  }
-  /* When the Streamlit sidebar is expanded, center the composer in the
-     remaining main-content area instead of underneath the sidebar. */
-  body:has(section[data-testid="stSidebar"][aria-expanded="true"])
-    div[data-testid="stChatInput"] {
-    left: calc(50% + 10.5rem) !important;
-    width: min(60rem, calc(100vw - 23rem)) !important;
-  }
-  section.main > div.block-container {
-    padding-bottom: 6rem !important;
-  }
-  @media (max-width: 700px) {
-    body:has(section[data-testid="stSidebar"][aria-expanded="true"])
-      div[data-testid="stChatInput"] {
-      left: 50% !important;
-      width: calc(100vw - 2rem) !important;
-    }
-  }
-</style>
-""", unsafe_allow_html=True)
+# Use Streamlit's native chat_input placement, as in the original app.
+# Do not override its position with fixed CSS: Streamlit places it at the
+# bottom of the main app area and adjusts it when the sidebar opens/closes.
 
 
 @_streamlit_fragment
