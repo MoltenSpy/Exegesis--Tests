@@ -351,27 +351,23 @@ def render_answer_actions(answer_text, key="ai_answer"):
     """Compact icon-only Copy and Listen controls with hover tooltips."""
     safe_text = json.dumps(str(answer_text or ""), ensure_ascii=False)
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
-    # Use the same neutral grey in both dark and light themes.
-    # This keeps the controls visible without switching to theme-specific colors.
-    bg = "transparent"
-    fg = "#858b94"
-    border = "rgba(128, 128, 128, 0.32)"
-    hover = "rgba(128, 128, 128, 0.13)"
-    status = "#858b94"
+    theme = str(st.get_option("theme.base") or "light").lower()
+    dark = theme == "dark"
+    bg = "#252a34" if dark else "#ffffff"
+    fg = "#f3f4f6" if dark else "#202938"
+    border = "#596273" if dark else "#cbd5e1"
+    hover = "#343b49" if dark else "#f1f5f9"
+    status = "#cbd5e1" if dark else "#475569"
 
     html = rf"""
     <div id="actions_{safe_key}" style="display:flex;align-items:center;gap:6px;
          margin:5px 0 10px;font-family:Arial,sans-serif;">
       <button id="speak_{safe_key}" type="button" title="Listen to answer" aria-label="Listen to answer"
-        style="width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
-        background:transparent;color:{fg};border:1px solid transparent;border-radius:10px;cursor:pointer;padding:0;">
-        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
-      </button>
+        style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:17px;cursor:pointer;">🔊</button>
       <button id="copy_{safe_key}" type="button" title="Copy answer" aria-label="Copy answer"
-        style="width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
-        background:transparent;color:{fg};border:1px solid transparent;border-radius:10px;cursor:pointer;padding:0;">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
-      </button>
+        style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:18px;cursor:pointer;">⧉</button>
       <span id="status_{safe_key}" role="status" aria-live="polite"
         style="font-size:12px;color:{status};"></span>
     </div>
@@ -395,15 +391,9 @@ def render_answer_actions(answer_text, key="ai_answer"):
       const copy = document.getElementById("copy_{safe_key}");
       const statusEl = document.getElementById("status_{safe_key}");
       [speak, copy].forEach(btn => {{
-        btn.addEventListener('mouseenter', () => {{
-          btn.style.background = '{hover}';
-          btn.style.borderColor = '{border}';
-        }});
-        btn.addEventListener('mouseleave', () => {{
-          btn.style.background = '{bg}';
-          btn.style.borderColor = 'transparent';
-        }});
-        btn.addEventListener('focus', () => btn.style.outline = '2px solid #858b94');
+        btn.addEventListener('mouseenter', () => btn.style.background = '{hover}');
+        btn.addEventListener('mouseleave', () => btn.style.background = '{bg}');
+        btn.addEventListener('focus', () => btn.style.outline = '2px solid #60a5fa');
         btn.addEventListener('blur', () => btn.style.outline = 'none');
       }});
       speak.addEventListener('click', () => {{
@@ -468,8 +458,6 @@ if "tutor_prompt" not in st.session_state:
     st.session_state["tutor_prompt"] = TUTOR_PROMPT
 if "editing_user_prompt" not in st.session_state:
     st.session_state["editing_user_prompt"] = None
-if "renaming_chat_index" not in st.session_state:
-    st.session_state["renaming_chat_index"] = None
 
 
 # =====================================================================
@@ -1298,79 +1286,23 @@ with st.sidebar:
             for i, chat in enumerate(
                 st.session_state["chat_history"]
             ):
-                # Keep a stable fallback title for older saved history entries.
-                chat_title = str(chat.get("title") or "Untitled chat")
-                cols = st.columns([4.5, 1, 0.7])
+                cols = st.columns([4, 1])
 
                 with cols[0]:
                     if st.button(
-                        chat_title,
-                        key=f"history_{i}",
-                        use_container_width=True,
-                        help="Open this saved conversation"
+                        chat["title"],
+                        key=f"history_{i}"
                     ):
-                        st.session_state["messages"] = chat.get("messages", [])
-                        st.session_state["renaming_chat_index"] = None
+                        st.session_state["messages"] = chat["messages"]
                         st.rerun()
 
                 with cols[1]:
                     if st.button(
-                        "✏️ Rename",
-                        key=f"rename_chat_{i}",
-                        use_container_width=True,
-                        help="Change this chat's name"
-                    ):
-                        current_edit = st.session_state.get("renaming_chat_index")
-                        if current_edit == i:
-                            st.session_state["renaming_chat_index"] = None
-                        else:
-                            # Refill the editor from the latest saved title each time.
-                            st.session_state.pop(f"rename_chat_title_input_{i}", None)
-                            st.session_state["renaming_chat_index"] = i
-                        st.rerun()
-
-                with cols[2]:
-                    if st.button(
                         "❌",
-                        key=f"del_chat_{i}",
-                        help="Delete this saved chat"
+                        key=f"del_chat_{i}"
                     ):
                         st.session_state["chat_history"].pop(i)
-                        if st.session_state.get("renaming_chat_index") == i:
-                            st.session_state["renaming_chat_index"] = None
                         save_user_session()
-                        st.rerun()
-
-                if st.session_state.get("renaming_chat_index") == i:
-                    with st.form(key=f"rename_chat_form_{i}"):
-                        revised_title = st.text_input(
-                            "New chat name",
-                            value=chat_title,
-                            max_chars=80,
-                            key=f"rename_chat_title_input_{i}"
-                        )
-                        save_col, cancel_col = st.columns(2)
-                        with save_col:
-                            save_rename = st.form_submit_button(
-                                "Save name", use_container_width=True
-                            )
-                        with cancel_col:
-                            cancel_rename = st.form_submit_button(
-                                "Cancel", use_container_width=True
-                            )
-
-                    if save_rename:
-                        cleaned_title = revised_title.strip()
-                        if cleaned_title:
-                            st.session_state["chat_history"][i]["title"] = cleaned_title
-                            st.session_state["renaming_chat_index"] = None
-                            save_user_session()
-                            st.success("Chat renamed successfully!")
-                            st.rerun()
-                        else:
-                            st.error("Please enter a chat name.")
-                    elif cancel_rename:
-                        st.session_state["renaming_chat_index"] = None
                         st.rerun()
 
     elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
@@ -1908,9 +1840,10 @@ def render_user_prompt_editor(message_index):
 
 
 def render_sticky_chat_disclaimer():
-    """Render the accuracy disclaimer as real HTML, not a Markdown code block."""
+    """Keep the accuracy disclaimer directly below the pinned chat composer."""
     st.markdown(
         """<style>
+        /* Lift Streamlit's pinned composer slightly to make room for the disclaimer. */
         div[data-testid="stBottom"] {
             bottom: 30px !important;
             padding-bottom: 0 !important;
@@ -1935,7 +1868,9 @@ def render_sticky_chat_disclaimer():
             border-top: 1px solid rgba(128, 128, 128, 0.22);
         }
         </style>
-<div class="exegesis-sticky-disclaimer">Exegesis AI can make mistakes. Double check important information.</div>""",
+        <div class="exegesis-sticky-disclaimer">
+            Exegesis AI can make mistakes. Double check important information.
+        </div>""",
         unsafe_allow_html=True,
     )
 
@@ -1981,32 +1916,6 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # DISPLAY EXISTING CHAT MESSAGES
     # ---------------------------------------------------------------
-    # Keep the edit control monochrome and theme-friendly without changing
-    # the appearance of other Streamlit buttons.
-    st.markdown(
-        """<style>
-        div[class*="st-key-edit_user_prompt_"] button {
-            color: #858b94 !important;
-            background: transparent !important;
-            border: 1px solid transparent !important;
-            border-radius: 9px !important;
-            min-height: 34px !important;
-            width: 36px !important;
-            padding: 0 !important;
-            box-shadow: none !important;
-        }
-        div[class*="st-key-edit_user_prompt_"] button:hover {
-            color: #6b7280 !important;
-            background: rgba(128, 128, 128, 0.13) !important;
-            border-color: rgba(128, 128, 128, 0.22) !important;
-        }
-        div[class*="st-key-edit_user_prompt_"] button:focus {
-            outline: 2px solid #8b929c !important;
-            outline-offset: 2px !important;
-        }
-        </style>""",
-        unsafe_allow_html=True,
-    )
     for msg_index, msg in enumerate(st.session_state["messages"]):
 
         avatar_img = (
@@ -2021,9 +1930,9 @@ def render_solo_study_chat():
         ):
             st.markdown(msg["content"])
             if msg["role"] == "user":
-                edit_col, _ = st.columns([0.45, 8.55])
+                edit_col, _ = st.columns([1, 8])
                 with edit_col:
-                    if st.button("✎", key=f"edit_user_prompt_{msg_index}", help="Edit this message", type="secondary"):
+                    if st.button("✏️ Edit", key=f"edit_user_prompt_{msg_index}", help="Edit this message"):
                         st.session_state["editing_user_prompt"] = msg_index
                 if st.session_state.get("editing_user_prompt") == msg_index:
                     render_user_prompt_editor(msg_index)
@@ -2135,6 +2044,21 @@ def render_solo_study_chat():
             avatar=st.session_state.get("profile_pic", None)
         ):
             st.markdown(content_to_send)
+
+            # The newest prompt is rendered immediately in this branch, before
+            # the next rerun. Add its Edit control here as well as in history.
+            new_message_index = len(st.session_state["messages"]) - 1
+            edit_col, _ = st.columns([1, 8])
+            with edit_col:
+                if st.button(
+                    "✎",
+                    key=f"edit_user_prompt_{new_message_index}",
+                    help="Edit this message",
+                    type="secondary"
+                ):
+                    st.session_state["editing_user_prompt"] = new_message_index
+            if st.session_state.get("editing_user_prompt") == new_message_index:
+                render_user_prompt_editor(new_message_index)
 
             if file_data_str:
                 if file_type_str.startswith("image/"):
