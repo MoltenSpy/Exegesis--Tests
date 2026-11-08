@@ -12,6 +12,10 @@ from datetime import datetime, timezone, timedelta, date
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import base64
 import json
+import textwrap
+import io
+import zipfile
+import xml.etree.ElementTree as ET
 import streamlit.components.v1 as components
 
 # --- Streamlit Page Configuration ---
@@ -110,6 +114,73 @@ def get_class_records(collection_name, school_name, school_location, grade, sect
     results.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
     return results
 
+
+
+def extract_uploaded_document_text(file_bytes, file_type="", file_name=""):
+    """Extract readable text from common school document formats without requiring extra packages."""
+    name = str(file_name or "").lower()
+    mime = str(file_type or "").lower()
+    suffix = name.rsplit(".", 1)[-1] if "." in name else ""
+
+    if suffix == "txt" or mime.startswith("text/"):
+        try:
+            return file_bytes.decode("utf-8", errors="replace")[:50000]
+        except Exception:
+            return ""
+
+    if suffix == "pdf" or mime == "application/pdf":
+        try:
+            try:
+                from pypdf import PdfReader
+            except ImportError:
+                from PyPDF2 import PdfReader
+            reader = PdfReader(io.BytesIO(file_bytes))
+            pages = []
+            for page in reader.pages[:40]:
+                pages.append(page.extract_text() or "")
+            return "\n\n".join(pages)[:50000]
+        except Exception:
+            return ""
+
+    archive_text_paths = []
+    if suffix == "docx":
+        archive_text_paths = ["word/document.xml"]
+    elif suffix == "pptx":
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+                archive_text_paths = sorted(
+                    (
+                        name for name in archive.namelist()
+                        if name.startswith("ppt/slides/slide") and name.endswith(".xml")
+                    ),
+                    key=lambda path: int(re.search(r"slide(\d+)", path).group(1))
+                    if re.search(r"slide(\d+)", path) else 0
+                )
+        except Exception:
+            return ""
+    elif suffix == "odt":
+        archive_text_paths = ["content.xml"]
+
+    if archive_text_paths:
+        try:
+            chunks = []
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+                for member in archive_text_paths:
+                    if member not in archive.namelist():
+                        continue
+                    root = ET.fromstring(archive.read(member))
+                    texts = [
+                        node.text.strip()
+                        for node in root.iter()
+                        if node.text and node.text.strip()
+                    ]
+                    if texts:
+                        chunks.append(" ".join(texts))
+            return "\n\n".join(chunks)[:50000]
+        except Exception:
+            return ""
+
+    return ""
 
 
 def build_cross_chat_memory(current_question, max_chars=60000):
@@ -277,19 +348,56 @@ def get_city_local_datetime(city_name):
         return None
 
 
+@st.cache_data(ttl=21600, show_spinner=False)
+def get_city_country_code(city_name):
+    """Resolve the entered city to an ISO country code for local observances."""
+    city = str(city_name or "").strip()
+    if not city:
+        return None
+    try:
+        response = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1, "language": "en", "format": "json"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        results = response.json().get("results") or []
+        return str(results[0].get("country_code", "")).upper() if results else None
+    except (requests.RequestException, ValueError, TypeError, IndexError):
+        return None
+
+
 # A deliberately curated set of widely celebrated occasions. Fixed-date
 # observances are stable; movable lunar-calendar dates are listed by year and
 # should be reviewed annually against the user's local observance.
 FESTIVAL_DATES = {
     (1, 1): ("Happy New Year", "🎉"),
+    (1, 4): ("Happy World Braille Day", "📚"),
     (1, 13): ("Happy Lohri", "🔥"),
     (1, 14): ("Happy Uttarayan and Makar Sankranti", "🪁"),
     (1, 15): ("Happy Pongal", "🌾"),
     (1, 26): ("Happy Republic Day", "🇮🇳"),
+    (2, 14): ("Happy Valentine's Day", "❤️"),
+    (3, 8): ("Happy International Women's Day", "🌷"),
+    (4, 1): ("Happy April Fools' Day", "😄"),
+    (4, 7): ("Happy World Health Day", "🌍"),
+    (4, 22): ("Happy Earth Day", "🌎"),
+    (5, 1): ("Happy Labour Day", "✊"),
+    (6, 5): ("Happy World Environment Day", "🌱"),
+    (6, 21): ("Happy International Yoga Day", "🧘"),
     (8, 15): ("Happy Independence Day", "🇮🇳"),
+    (9, 5): ("Happy Teachers' Day", "🍎"),
     (10, 2): ("Happy Gandhi Jayanti", "🇮🇳"),
     (10, 31): ("Happy Halloween", "🎃"),
+    (11, 14): ("Happy Children's Day", "🎈"),
+    (12, 10): ("Happy Human Rights Day", "🤝"),
+    (12, 24): ("Merry Christmas Eve", "🎄"),
     (12, 25): ("Merry Christmas", "🎄"),
+    (12, 31): ("Happy New Year's Eve", "✨"),
+}
+INDIA_ONLY_FIXED_DATES = {
+    (1, 13), (1, 14), (1, 15), (1, 26),
+    (8, 15), (9, 5), (10, 2), (11, 14)
 }
 MOVABLE_FESTIVAL_DATES = {
     # Dates are Gregorian dates for major commonly observed Indian celebrations.
@@ -301,21 +409,66 @@ MOVABLE_FESTIVAL_DATES = {
 }
 
 
-def get_festival_greeting(local_date):
-    """Return one concise greeting for a recognised celebration, if any."""
+def _nth_weekday(year, month, weekday, occurrence):
+    """Return the date of the nth weekday in a month (Monday=0)."""
+    first = date(year, month, 1)
+    offset = (weekday - first.weekday()) % 7
+    return date(year, month, 1 + offset + 7 * (occurrence - 1))
+
+
+def _easter_sunday(year):
+    """Calculate Western Easter Sunday using the Gregorian computus."""
+    a = year % 19
+    b, c = divmod(year, 100)
+    d, e = divmod(b, 4)
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = divmod(c, 4)
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year, month, day)
+
+
+def get_festival_greeting(local_date, city_name=""):
+    """Return a greeting based on the entered city's local date and country."""
     if not local_date:
         return None
-    greeting = MOVABLE_FESTIVAL_DATES.get(local_date.year, {}).get(
-        (local_date.month, local_date.day)
-    ) or FESTIVAL_DATES.get((local_date.month, local_date.day))
-    return greeting
+
+    country_code = get_city_country_code(city_name)
+    date_key = (local_date.month, local_date.day)
+    year = local_date.year
+    movable = {}
+
+    # Indian lunar-calendar observances are only used when the entered city is in India.
+    if country_code == "IN":
+        movable.update(MOVABLE_FESTIVAL_DATES.get(year, {}))
+
+    # Broadly observed annual dates calculated instead of hard-coded.
+    mothers_day = _nth_weekday(year, 5, 6, 2)
+    movable[(mothers_day.month, mothers_day.day)] = ("Happy Mother's Day", "🌷")
+    fathers_day = _nth_weekday(year, 6, 6, 3)
+    movable[(fathers_day.month, fathers_day.day)] = ("Happy Father's Day", "💙")
+    easter = _easter_sunday(year)
+    movable[(easter.month, easter.day)] = ("Happy Easter", "🐣")
+    if country_code == "US":
+        thanksgiving = _nth_weekday(year, 11, 3, 4)
+        movable[(thanksgiving.month, thanksgiving.day)] = ("Happy Thanksgiving", "🦃")
+
+    if country_code != "IN" and date_key in INDIA_ONLY_FIXED_DATES:
+        return None
+    return movable.get(date_key) or FESTIVAL_DATES.get(date_key)
 
 
 def get_personalised_welcome(suffix=""):
     """Use a festival greeting instead of the ordinary Hello greeting."""
     name = st.session_state.get("full_name") or "there"
     city_time = get_city_local_datetime(st.session_state.get("user_city", ""))
-    festival = get_festival_greeting(city_time.date()) if city_time else None
+    festival = get_festival_greeting(
+        city_time.date(), st.session_state.get("user_city", "")
+    ) if city_time else None
     if festival:
         text, emoji = festival
         return f"{text}, {name}! {emoji}{suffix}"
@@ -351,23 +504,22 @@ def render_answer_actions(answer_text, key="ai_answer"):
     """Compact icon-only Copy and Listen controls with hover tooltips."""
     safe_text = json.dumps(str(answer_text or ""), ensure_ascii=False)
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
-    theme = str(st.get_option("theme.base") or "light").lower()
-    dark = theme == "dark"
-    bg = "#252a34" if dark else "#ffffff"
-    fg = "#f3f4f6" if dark else "#202938"
-    border = "#596273" if dark else "#cbd5e1"
-    hover = "#343b49" if dark else "#f1f5f9"
-    status = "#cbd5e1" if dark else "#475569"
+    # Neutral grey icons remain legible in both light and dark themes.
+    bg = "transparent"
+    fg = "#858b94"
+    border = "rgba(128, 128, 128, 0.22)"
+    hover = "rgba(128, 128, 128, 0.13)"
+    status = "#858b94"
 
     html = rf"""
     <div id="actions_{safe_key}" style="display:flex;align-items:center;gap:6px;
          margin:5px 0 10px;font-family:Arial,sans-serif;">
       <button id="speak_{safe_key}" type="button" title="Listen to answer" aria-label="Listen to answer"
         style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
-        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:17px;cursor:pointer;">🔊</button>
+        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:17px;cursor:pointer;filter:grayscale(1);">🔊</button>
       <button id="copy_{safe_key}" type="button" title="Copy answer" aria-label="Copy answer"
         style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
-        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:18px;cursor:pointer;">⧉</button>
+        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:18px;cursor:pointer;filter:grayscale(1);">⧉</button>
       <span id="status_{safe_key}" role="status" aria-live="polite"
         style="font-size:12px;color:{status};"></span>
     </div>
@@ -393,7 +545,7 @@ def render_answer_actions(answer_text, key="ai_answer"):
       [speak, copy].forEach(btn => {{
         btn.addEventListener('mouseenter', () => btn.style.background = '{hover}');
         btn.addEventListener('mouseleave', () => btn.style.background = '{bg}');
-        btn.addEventListener('focus', () => btn.style.outline = '2px solid #60a5fa');
+        btn.addEventListener('focus', () => btn.style.outline = '2px solid #858b94');
         btn.addEventListener('blur', () => btn.style.outline = 'none');
       }});
       speak.addEventListener('click', () => {{
@@ -458,6 +610,8 @@ if "tutor_prompt" not in st.session_state:
     st.session_state["tutor_prompt"] = TUTOR_PROMPT
 if "editing_user_prompt" not in st.session_state:
     st.session_state["editing_user_prompt"] = None
+if "renaming_chat_index" not in st.session_state:
+    st.session_state["renaming_chat_index"] = None
 
 
 # =====================================================================
@@ -1202,6 +1356,23 @@ with st.sidebar:
 
     st.subheader("⚙️ Account Settings")
 
+    with st.expander("✏️ Edit Exegesis AI Tutor Prompt"):
+        st.caption("Customise the instructions Exegesis AI follows in your chats. Keep safety and school-integrity guidance intact.")
+        edited_tutor_prompt = st.text_area(
+            "Your tutor prompt",
+            value=get_active_tutor_prompt(),
+            height=220,
+            key="editable_tutor_prompt_box"
+        )
+        if st.button("Save Tutor Prompt", key="save_tutor_prompt_button"):
+            if edited_tutor_prompt.strip():
+                st.session_state["tutor_prompt"] = edited_tutor_prompt.strip()
+                save_user_session()
+                st.success("Tutor prompt saved!")
+                st.rerun()
+            else:
+                st.error("Tutor prompt cannot be empty.")
+
     with st.expander("Update Profile / Password"):
         new_name_val = st.text_input(
             "New Full Name",
@@ -1272,38 +1443,68 @@ with st.sidebar:
             st.rerun()
 
         with st.expander("💬 Solo Chat History"):
-
-            if len(st.session_state["chat_history"]) > 3:
+            if len(st.session_state["chat_history"]) > 0:
                 if st.button(
                     "🗑️ Clear All Chats",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="clear_all_chat_history"
                 ):
                     st.session_state["chat_history"] = []
+                    st.session_state["renaming_chat_index"] = None
                     save_user_session()
                     st.success("All chat history cleared!")
                     st.rerun()
 
-            for i, chat in enumerate(
-                st.session_state["chat_history"]
-            ):
-                cols = st.columns([4, 1])
-
+            for i, chat in enumerate(st.session_state["chat_history"]):
+                cols = st.columns([5, 1, 1])
                 with cols[0]:
                     if st.button(
-                        chat["title"],
-                        key=f"history_{i}"
+                        chat.get("title", "Untitled chat"),
+                        key=f"history_{i}",
+                        use_container_width=True
                     ):
-                        st.session_state["messages"] = chat["messages"]
+                        st.session_state["messages"] = chat.get("messages", [])
+                        st.session_state["editing_user_prompt"] = None
+                        st.session_state["renaming_chat_index"] = None
                         st.rerun()
-
                 with cols[1]:
-                    if st.button(
-                        "❌",
-                        key=f"del_chat_{i}"
-                    ):
+                    if st.button("✏️", key=f"rename_chat_{i}", help="Rename this chat"):
+                        st.session_state["renaming_chat_index"] = i
+                        st.session_state.pop(f"rename_chat_title_input_{i}", None)
+                        st.rerun()
+                with cols[2]:
+                    if st.button("❌", key=f"del_chat_{i}", help="Delete this chat"):
                         st.session_state["chat_history"].pop(i)
+                        if st.session_state.get("renaming_chat_index") == i:
+                            st.session_state["renaming_chat_index"] = None
                         save_user_session()
                         st.rerun()
+
+                if st.session_state.get("renaming_chat_index") == i:
+                    with st.form(key=f"rename_chat_form_{i}"):
+                        new_chat_title = st.text_input(
+                            "New chat name",
+                            value=chat.get("title", "Untitled chat"),
+                            max_chars=80,
+                            key=f"rename_chat_title_input_{i}"
+                        )
+                        save_col, cancel_col = st.columns(2)
+                        with save_col:
+                            rename_save = st.form_submit_button("Save name", use_container_width=True)
+                        with cancel_col:
+                            rename_cancel = st.form_submit_button("Cancel", use_container_width=True)
+                        if rename_save:
+                            if new_chat_title.strip():
+                                st.session_state["chat_history"][i]["title"] = new_chat_title.strip()
+                                st.session_state["renaming_chat_index"] = None
+                                save_user_session()
+                                st.success("Chat renamed!")
+                                st.rerun()
+                            else:
+                                st.error("Chat name cannot be empty.")
+                        elif rename_cancel:
+                            st.session_state["renaming_chat_index"] = None
+                            st.rerun()
 
     elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
 
@@ -1494,7 +1695,10 @@ def detect_foul_language(text):
         categories.append("threatening language")
         severity = "high"
 
-    harassment_terms = ["idiot", "stupid", "trash", "badword1", "badword2"]
+    harassment_terms = [
+        "idiot", "stupid", "trash", "moron", "loser", "dumbass",
+        "jerk", "fool", "shut up"
+    ]
     if any(re.search(r"\b" + re.escape(term) + r"\b", lowered) for term in harassment_terms):
         categories.append("insulting / abusive language")
 
@@ -1516,15 +1720,30 @@ def detect_foul_language(text):
         previous = v_doc.to_dict() or {} if v_doc.exists else {}
         current_count = int(previous.get("count", 0)) + 1
         combined_categories = sorted(set(previous.get("categories", [])) | set(categories))
-        v_ref.set({
+        student_doc = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
+        report_time = datetime.now(timezone.utc).isoformat()
+        violation_payload = {
             "username": user_name,
             "full_name": st.session_state.get("full_name", user_name),
             "count": current_count,
             "last_message": raw_text[:2000],
             "categories": combined_categories,
             "severity": severity,
-            "time": datetime.now(timezone.utc).isoformat()
-        }, merge=True)
+            "school_name": student_doc.get("school_name", st.session_state.get("school_name", "")),
+            "school_location": student_doc.get("school_location", st.session_state.get("school_location", "")),
+            "grade": student_doc.get("grade", st.session_state.get("grade", "")),
+            "section": student_doc.get("section", st.session_state.get("section", "")),
+            "time": report_time
+        }
+        v_ref.set(violation_payload, merge=True)
+        # Teacher report is a human-review queue, not an automatic punishment.
+        if violation_payload["school_name"]:
+            db.collection("teacher_reports").add({
+                **violation_payload,
+                "reviewed": False,
+                "review_status": "pending",
+                "source": "chat_moderation"
+            })
     except Exception as exc:
         # Do not block chat if the moderation-report database is temporarily unavailable.
         st.warning(f"The message was flagged, but the report could not be saved: {exc}")
@@ -1673,7 +1892,7 @@ if user_role == "Teacher Portal":
     st.title(f"🍎 Teacher Dashboard — {st.session_state['full_name']}")
     st.caption(f"{school_name} · {school_location}")
 
-    teacher_tabs = st.tabs(["📩 Parent Messages", "📋 Homework & Tasks", "📚 Learning Resources"])
+    teacher_tabs = st.tabs(["📩 Parent Messages", "🚩 Student Reports", "📋 Homework & Tasks", "📚 Learning Resources"])
     with teacher_tabs[0]:
         st.subheader("Messages from Parents")
         p_msgs = db.collection("teacher_parent_messages").stream()
@@ -1687,6 +1906,70 @@ if user_role == "Teacher Portal":
             st.caption("No parent messages yet.")
 
     with teacher_tabs[1]:
+        st.subheader("Student Language & Safety Reports")
+        st.caption("Reports are for teacher review. No automatic punishment is applied.")
+        teacher_reports = db.collection("teacher_reports").stream()
+        matching_reports = []
+        for report_doc in teacher_reports:
+            report_data = report_doc.to_dict() or {}
+            same_school = (
+                normalize_school_value(report_data.get("school_name")) == normalize_school_value(school_name)
+                and normalize_school_value(report_data.get("school_location")) == normalize_school_value(school_location)
+            )
+            same_class = (
+                normalize_school_value(report_data.get("grade")) == normalize_school_value(teacher_data.get("grade", report_data.get("grade", "")))
+                and normalize_school_value(report_data.get("section")) == normalize_school_value(teacher_data.get("section", report_data.get("section", "")))
+            )
+            if same_school and (
+                not teacher_data.get("grade") or not teacher_data.get("section") or same_class
+            ):
+                matching_reports.append((report_doc.id, report_data))
+
+        if not matching_reports:
+            st.info("No student reports for your school/class.")
+        else:
+            for report_id, report_data in sorted(
+                matching_reports,
+                key=lambda item: str(item[1].get("time", "")),
+                reverse=True
+            ):
+                with st.container():
+                    st.markdown(
+                        f"**{report_data.get('full_name', 'Student')}** "
+                        f"(@{report_data.get('username', 'unknown')})"
+                    )
+                    st.caption(
+                        f"{report_data.get('school_name', '')} · "
+                        f"{report_data.get('grade', '')}, Section {report_data.get('section', '')} · "
+                        f"{report_data.get('time', '')}"
+                    )
+                    st.write("**Detected category:** " + ", ".join(report_data.get("categories", [])))
+                    st.write("**Reported message:**")
+                    st.write(report_data.get("last_message", ""))
+                    st.write("**Review status:** " + str(report_data.get("review_status", "pending")).title())
+                    if not report_data.get("reviewed", False):
+                        review_col, dismiss_col = st.columns(2)
+                        with review_col:
+                            if st.button("Mark reviewed", key=f"teacher_review_{report_id}"):
+                                db.collection("teacher_reports").document(report_id).update({
+                                    "reviewed": True,
+                                    "review_status": "reviewed",
+                                    "reviewed_by": st.session_state["full_name"],
+                                    "reviewed_at": datetime.now(timezone.utc).isoformat()
+                                })
+                                st.rerun()
+                        with dismiss_col:
+                            if st.button("Dismiss report", key=f"teacher_dismiss_{report_id}"):
+                                db.collection("teacher_reports").document(report_id).update({
+                                    "reviewed": True,
+                                    "review_status": "dismissed",
+                                    "reviewed_by": st.session_state["full_name"],
+                                    "reviewed_at": datetime.now(timezone.utc).isoformat()
+                                })
+                                st.rerun()
+                    st.markdown("---")
+
+    with teacher_tabs[2]:
         st.subheader("Assign Homework / Task")
         with st.form("teacher_create_task_form"):
             grade = st.selectbox("Select Grade", [f"Grade {n}" for n in range(1, 13)], key="teacher_task_grade")
@@ -1713,7 +1996,7 @@ if user_role == "Teacher Portal":
                 })
                 st.success(f"Task assigned to {grade}, Section {section.strip().upper()}.")
 
-    with teacher_tabs[2]:
+    with teacher_tabs[3]:
         st.subheader("Share a Learning Resource")
         with st.form("teacher_create_resource_form"):
             resource_grade = st.selectbox("Select Grade", [f"Grade {n}" for n in range(1, 13)], key="teacher_resource_grade")
@@ -1810,6 +2093,37 @@ def _rerun_current_chat_fragment():
 # the available main-area width as the sidebar expands or contracts.
 
 
+def render_edit_pencil(message_index, key_suffix="history"):
+    """Render the compact icon-only grey pencil control for a user prompt."""
+    st.markdown(
+        """<style>
+        div[class*="st-key-edit_user_prompt_"] button {
+            color: #858b94 !important;
+            background: transparent !important;
+            border: 1px solid rgba(128, 128, 128, 0.22) !important;
+            min-height: 34px !important;
+            padding: 0.25rem 0.55rem !important;
+            filter: grayscale(1) !important;
+        }
+        div[class*="st-key-edit_user_prompt_"] button:hover {
+            background: rgba(128, 128, 128, 0.13) !important;
+            border-color: rgba(128, 128, 128, 0.35) !important;
+        }
+        </style>""",
+        unsafe_allow_html=True
+    )
+    edit_col, _ = st.columns([0.55, 8.45])
+    with edit_col:
+        if st.button(
+            "✏️",
+            key=f"edit_user_prompt_{key_suffix}_{message_index}",
+            help="Edit this message",
+            type="secondary"
+        ):
+            st.session_state["editing_user_prompt"] = message_index
+            st.rerun()
+
+
 def render_user_prompt_editor(message_index):
     """Inline editor for a user's own previously sent chat prompt."""
     messages = st.session_state.get("messages", [])
@@ -1818,7 +2132,7 @@ def render_user_prompt_editor(message_index):
         return
     original = str(messages[message_index].get("content", ""))
     with st.form(key=f"edit_user_prompt_form_{message_index}"):
-        revised = st.text_area("Edit your message", value=original, key=f"edit_user_prompt_text_{message_index}", height=100)
+        revised = st.text_area("Edit your message", value=original, key=f"edit_user_prompt_text_{message_index}_{len(original)}", height=100)
         save_col, cancel_col = st.columns(2)
         with save_col:
             save = st.form_submit_button("Save changes", use_container_width=True)
@@ -1840,39 +2154,51 @@ def render_user_prompt_editor(message_index):
 
 
 def render_sticky_chat_disclaimer():
-    """Keep the accuracy disclaimer directly below the pinned chat composer."""
-    st.markdown(
-        """<style>
-        /* Lift Streamlit's pinned composer slightly to make room for the disclaimer. */
-        div[data-testid="stBottom"] {
-            bottom: 30px !important;
-            padding-bottom: 0 !important;
-        }
-        div[data-testid="stChatInput"] {
-            margin-bottom: 0 !important;
-        }
-        .exegesis-sticky-disclaimer {
-            position: fixed;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            z-index: 998;
-            min-height: 28px;
-            box-sizing: border-box;
-            padding: 5px 12px 6px;
-            text-align: center;
-            font-size: 0.78rem;
-            line-height: 1.2;
-            color: var(--text-color);
-            background: var(--background-color);
-            border-top: 1px solid rgba(128, 128, 128, 0.22);
-        }
-        </style>
-        <div class="exegesis-sticky-disclaimer">
-            Exegesis AI can make mistakes. Double check important information.
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    """Pin the accuracy disclaimer below the native Streamlit chat composer."""
+    disclaimer_html = """
+<style>
+div[data-testid="stBottom"] {
+    bottom: 30px !important;
+    padding-bottom: 0 !important;
+}
+div[data-testid="stChatInput"] {
+    margin-bottom: 0 !important;
+}
+.exegesis-sticky-disclaimer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 998;
+    min-height: 28px;
+    box-sizing: border-box;
+    padding: 5px 12px 6px;
+    text-align: center;
+    font-size: 0.78rem;
+    line-height: 1.2;
+    color: var(--text-color, #858b94);
+    background: var(--background-color, transparent);
+    border-top: 1px solid rgba(128, 128, 128, 0.22);
+}
+/* Keep the fixed disclaimer aligned with the main chat column, not over the sidebar. */
+body:has([data-testid="stSidebar"][aria-expanded="true"]) .exegesis-sticky-disclaimer {
+    left: 21rem;
+}
+@media (max-width: 700px) {
+    .exegesis-sticky-disclaimer {
+        left: 0 !important;
+    }
+}
+@media (prefers-color-scheme: dark) {
+    .exegesis-sticky-disclaimer {
+        color: #aeb4bd;
+        background: #0e1117;
+    }
+}
+</style>
+<div class="exegesis-sticky-disclaimer">Exegesis AI can make mistakes. Double check important information.</div>
+"""
+    st.markdown(disclaimer_html, unsafe_allow_html=True)
 
 
 def render_solo_study_chat():
@@ -1930,10 +2256,7 @@ def render_solo_study_chat():
         ):
             st.markdown(msg["content"])
             if msg["role"] == "user":
-                edit_col, _ = st.columns([1, 8])
-                with edit_col:
-                    if st.button("✏️ Edit", key=f"edit_user_prompt_{msg_index}", help="Edit this message"):
-                        st.session_state["editing_user_prompt"] = msg_index
+                render_edit_pencil(msg_index, key_suffix="history")
                 if st.session_state.get("editing_user_prompt") == msg_index:
                     render_user_prompt_editor(msg_index)
             if msg["role"] == "assistant":
@@ -1967,7 +2290,7 @@ def render_solo_study_chat():
         file_type=[
             "png", "jpg", "jpeg",
             "mp4", "mov", "avi",
-            "pdf", "txt", "docx", "odt"
+            "pdf", "txt", "docx", "odt", "pptx"
         ]
     )
 
@@ -1988,6 +2311,7 @@ def render_solo_study_chat():
         file_data_str = ""
         file_type_str = ""
         file_name_str = ""
+        ai_file_context = ""
 
         if uploaded_files:
 
@@ -2010,19 +2334,29 @@ def render_solo_study_chat():
             )
 
             if file_type_str.startswith("image/"):
-                user_text = (
-                    f"[Attached Image: {file_name_str}]\n{user_text}"
-                )
-
+                user_text = f"[Attached Image: {file_name_str}]\n{user_text}"
+                ai_file_context = "An image is attached. Inspect the image carefully and describe relevant visible details."
             elif file_type_str.startswith("video/"):
-                user_text = (
-                    f"[Attached Video: {file_name_str}]\n{user_text}"
+                user_text = f"[Attached Video: {file_name_str}]\n{user_text}"
+                ai_file_context = (
+                    "A video file was attached, but this chat integration cannot directly decode video frames. "
+                    "Do not pretend to have watched it. Ask the student to share screenshots or key frames."
                 )
-
             else:
-                user_text = (
-                    f"[Attached File: {file_name_str}]\n{user_text}"
+                extracted_text = extract_uploaded_document_text(
+                    file_bytes, file_type_str, file_name_str
                 )
+                user_text = f"[Attached File: {file_name_str}]\n{user_text}"
+                if extracted_text:
+                    ai_file_context = (
+                        f"EXTRACTED TEXT FROM ATTACHED FILE ({file_name_str}):\n"
+                        f"{extracted_text}"
+                    )
+                else:
+                    ai_file_context = (
+                        f"A file named {file_name_str} was attached, but readable text could not be extracted. "
+                        "Do not claim to have read it; ask the student to upload a text-readable copy or paste the relevant content."
+                    )
 
         content_to_send = str(
             user_text if user_text else "Sent an attachment."
@@ -2033,7 +2367,8 @@ def render_solo_study_chat():
             "content": content_to_send,
             "file_data": file_data_str,
             "file_type": file_type_str,
-            "file_name": file_name_str
+            "file_name": file_name_str,
+            "ai_context": ai_file_context
         }
 
         # SAVE USER MESSAGE
@@ -2044,21 +2379,11 @@ def render_solo_study_chat():
             avatar=st.session_state.get("profile_pic", None)
         ):
             st.markdown(content_to_send)
-
-            # The newest prompt is rendered immediately in this branch, before
-            # the next rerun. Add its Edit control here as well as in history.
-            new_message_index = len(st.session_state["messages"]) - 1
-            edit_col, _ = st.columns([1, 8])
-            with edit_col:
-                if st.button(
-                    "✎",
-                    key=f"edit_user_prompt_{new_message_index}",
-                    help="Edit this message",
-                    type="secondary"
-                ):
-                    st.session_state["editing_user_prompt"] = new_message_index
-            if st.session_state.get("editing_user_prompt") == new_message_index:
-                render_user_prompt_editor(new_message_index)
+            # This immediate display path is separate from the history loop.
+            latest_user_index = len(st.session_state["messages"]) - 1
+            render_edit_pencil(latest_user_index, key_suffix="latest")
+            if st.session_state.get("editing_user_prompt") == latest_user_index:
+                render_user_prompt_editor(latest_user_index)
 
             if file_data_str:
                 if file_type_str.startswith("image/"):
@@ -2110,7 +2435,18 @@ def render_solo_study_chat():
         ] + [
             {
                 "role": str(m["role"]),
-                "content": str(m["content"])
+                "content": (
+                    [
+                        {"type": "text", "text": str(m["content"]) + (
+                            "\n\n" + str(m.get("ai_context", "")) if m.get("ai_context") else ""
+                        )},
+                        {"type": "image_url", "image_url": {"url": str(m.get("file_data", ""))}}
+                    ]
+                    if str(m.get("file_type", "")).startswith("image/") and m.get("file_data")
+                    else str(m["content"]) + (
+                        "\n\n" + str(m.get("ai_context", "")) if m.get("ai_context") else ""
+                    )
+                )
             }
             for m in st.session_state["messages"]
         ]
@@ -2227,7 +2563,7 @@ def render_group_study_chats():
     st.title(get_personalised_welcome(" 👥 Friends & Study Groups"))
 
     tab1, tab2 = st.tabs([
-        "Friend Requests & Nicknames",
+        "Friends",
         "Create Group Chat"
     ])
 
@@ -2256,7 +2592,7 @@ def render_group_study_chats():
 
                 if not target_doc.exists:
                     st.error(
-                        "No account was found with that username. "
+                        "No people have this username. "
                         "Check the spelling and try again."
                     )
                 else:
@@ -2492,11 +2828,6 @@ def render_group_study_chats():
             key="group_friend_picker"
         )
 
-        members_input = st.text_input(
-            "Or enter friend full names manually (separate with commas)",
-            placeholder="Optional — you can use the dropdown above instead"
-        )
-
         uploaded_group_pic = st.file_uploader(
             "Group Profile Picture",
             type=["png", "jpg", "jpeg"],
@@ -2510,13 +2841,7 @@ def render_group_study_chats():
 
             else:
 
-                parsed_members = list(dict.fromkeys(
-                    selected_friend_names + [
-                        m.strip()
-                        for m in members_input.split(",")
-                        if m.strip()
-                    ]
-                ))
+                parsed_members = list(dict.fromkeys(selected_friend_names))
 
                 invalid_members = [
                     m for m in parsed_members
@@ -2807,10 +3132,13 @@ def render_group_study_chats():
                                 g_resp_json["choices"][0]
                                 ["message"].get("content")
                             )
-
+                            if isinstance(ai_help, list):
+                                ai_help = "\n".join(
+                                    str(part.get("text", "")) if isinstance(part, dict) else str(part)
+                                    for part in ai_help
+                                )
                             if ai_help is None:
                                 ai_help = ""
-
                             ai_help = str(ai_help).strip()
 
                             if not ai_help or ai_help.lower() == "none":
