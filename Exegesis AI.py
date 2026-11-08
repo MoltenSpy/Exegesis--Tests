@@ -2140,9 +2140,12 @@ def render_user_prompt_editor(message_index):
             cancel = st.form_submit_button("Cancel", use_container_width=True)
         if save:
             if revised.strip():
-                messages[message_index]["content"] = revised.strip()
-                # Remove later conversation turns so the next reply uses the edited prompt.
-                st.session_state["messages"] = messages[:message_index + 1]
+                # Re-submit the edited message as a fresh turn so Exegesis AI
+                # actually generates a new answer instead of only changing the text.
+                edited_message = dict(messages[message_index])
+                edited_message["content"] = revised.strip()
+                st.session_state["messages"] = messages[:message_index]
+                st.session_state["pending_edited_message"] = edited_message
                 st.session_state["editing_user_prompt"] = None
                 save_user_session()
                 st.rerun()
@@ -2294,24 +2297,38 @@ def render_solo_study_chat():
         ]
     )
 
+    # An edited message is queued by the inline editor. Process it through
+    # the exact same AI request path as a newly typed chat message.
+    pending_edited_message = st.session_state.pop("pending_edited_message", None)
+    if pending_edited_message is not None:
+        prompt = pending_edited_message
+
     if prompt:
 
-        user_text = (
-            prompt.text
-            if hasattr(prompt, "text")
-            else str(prompt)
-        )
+        if isinstance(prompt, dict):
+            user_text = str(prompt.get("content", ""))
+            uploaded_files = []
+            file_data_str = str(prompt.get("file_data", "") or "")
+            file_type_str = str(prompt.get("file_type", "") or "")
+            file_name_str = str(prompt.get("file_name", "") or "")
+            ai_file_context = str(prompt.get("ai_context", "") or "")
+        else:
+            user_text = (
+                prompt.text
+                if hasattr(prompt, "text")
+                else str(prompt)
+            )
 
-        uploaded_files = (
-            prompt.files
-            if hasattr(prompt, "files")
-            else []
-        )
+            uploaded_files = (
+                prompt.files
+                if hasattr(prompt, "files")
+                else []
+            )
 
-        file_data_str = ""
-        file_type_str = ""
-        file_name_str = ""
-        ai_file_context = ""
+            file_data_str = ""
+            file_type_str = ""
+            file_name_str = ""
+            ai_file_context = ""
 
         if uploaded_files:
 
