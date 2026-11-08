@@ -351,13 +351,13 @@ def render_answer_actions(answer_text, key="ai_answer"):
     """Compact icon-only Copy and Listen controls with hover tooltips."""
     safe_text = json.dumps(str(answer_text or ""), ensure_ascii=False)
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
-    theme = str(st.get_option("theme.base") or "light").lower()
-    dark = theme == "dark"
+    # Use the same neutral grey in both dark and light themes.
+    # This keeps the controls visible without switching to theme-specific colors.
     bg = "transparent"
-    fg = "#f3f4f6" if dark else "#202938"
-    border = "#596273" if dark else "#cbd5e1"
-    hover = "#343b49" if dark else "#f1f5f9"
-    status = "#cbd5e1" if dark else "#475569"
+    fg = "#858b94"
+    border = "rgba(128, 128, 128, 0.32)"
+    hover = "rgba(128, 128, 128, 0.13)"
+    status = "#858b94"
 
     html = rf"""
     <div id="actions_{safe_key}" style="display:flex;align-items:center;gap:6px;
@@ -395,9 +395,15 @@ def render_answer_actions(answer_text, key="ai_answer"):
       const copy = document.getElementById("copy_{safe_key}");
       const statusEl = document.getElementById("status_{safe_key}");
       [speak, copy].forEach(btn => {{
-        btn.addEventListener('mouseenter', () => btn.style.background = '{hover}');
-        btn.addEventListener('mouseleave', () => btn.style.background = '{bg}');
-        btn.addEventListener('focus', () => btn.style.outline = '2px solid #60a5fa');
+        btn.addEventListener('mouseenter', () => {{
+          btn.style.background = '{hover}';
+          btn.style.borderColor = '{border}';
+        }});
+        btn.addEventListener('mouseleave', () => {{
+          btn.style.background = '{bg}';
+          btn.style.borderColor = 'transparent';
+        }});
+        btn.addEventListener('focus', () => btn.style.outline = '2px solid #858b94');
         btn.addEventListener('blur', () => btn.style.outline = 'none');
       }});
       speak.addEventListener('click', () => {{
