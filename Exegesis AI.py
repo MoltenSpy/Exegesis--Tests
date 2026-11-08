@@ -458,6 +458,8 @@ if "tutor_prompt" not in st.session_state:
     st.session_state["tutor_prompt"] = TUTOR_PROMPT
 if "editing_user_prompt" not in st.session_state:
     st.session_state["editing_user_prompt"] = None
+if "renaming_chat_index" not in st.session_state:
+    st.session_state["renaming_chat_index"] = None
 
 
 # =====================================================================
@@ -1286,23 +1288,79 @@ with st.sidebar:
             for i, chat in enumerate(
                 st.session_state["chat_history"]
             ):
-                cols = st.columns([4, 1])
+                # Keep a stable fallback title for older saved history entries.
+                chat_title = str(chat.get("title") or "Untitled chat")
+                cols = st.columns([4.5, 1, 0.7])
 
                 with cols[0]:
                     if st.button(
-                        chat["title"],
-                        key=f"history_{i}"
+                        chat_title,
+                        key=f"history_{i}",
+                        use_container_width=True,
+                        help="Open this saved conversation"
                     ):
-                        st.session_state["messages"] = chat["messages"]
+                        st.session_state["messages"] = chat.get("messages", [])
+                        st.session_state["renaming_chat_index"] = None
                         st.rerun()
 
                 with cols[1]:
                     if st.button(
+                        "✏️ Rename",
+                        key=f"rename_chat_{i}",
+                        use_container_width=True,
+                        help="Change this chat's name"
+                    ):
+                        current_edit = st.session_state.get("renaming_chat_index")
+                        if current_edit == i:
+                            st.session_state["renaming_chat_index"] = None
+                        else:
+                            # Refill the editor from the latest saved title each time.
+                            st.session_state.pop(f"rename_chat_title_input_{i}", None)
+                            st.session_state["renaming_chat_index"] = i
+                        st.rerun()
+
+                with cols[2]:
+                    if st.button(
                         "❌",
-                        key=f"del_chat_{i}"
+                        key=f"del_chat_{i}",
+                        help="Delete this saved chat"
                     ):
                         st.session_state["chat_history"].pop(i)
+                        if st.session_state.get("renaming_chat_index") == i:
+                            st.session_state["renaming_chat_index"] = None
                         save_user_session()
+                        st.rerun()
+
+                if st.session_state.get("renaming_chat_index") == i:
+                    with st.form(key=f"rename_chat_form_{i}"):
+                        revised_title = st.text_input(
+                            "New chat name",
+                            value=chat_title,
+                            max_chars=80,
+                            key=f"rename_chat_title_input_{i}"
+                        )
+                        save_col, cancel_col = st.columns(2)
+                        with save_col:
+                            save_rename = st.form_submit_button(
+                                "Save name", use_container_width=True
+                            )
+                        with cancel_col:
+                            cancel_rename = st.form_submit_button(
+                                "Cancel", use_container_width=True
+                            )
+
+                    if save_rename:
+                        cleaned_title = revised_title.strip()
+                        if cleaned_title:
+                            st.session_state["chat_history"][i]["title"] = cleaned_title
+                            st.session_state["renaming_chat_index"] = None
+                            save_user_session()
+                            st.success("Chat renamed successfully!")
+                            st.rerun()
+                        else:
+                            st.error("Please enter a chat name.")
+                    elif cancel_rename:
+                        st.session_state["renaming_chat_index"] = None
                         st.rerun()
 
     elif st.session_state["app_mode"] == "👥 Friends & Study Groups":
@@ -1840,37 +1898,39 @@ def render_user_prompt_editor(message_index):
 
 
 def render_sticky_chat_disclaimer():
-    """Render the accuracy disclaimer as HTML below Streamlit's pinned composer."""
-    # Keep the HTML at column zero. Indenting raw HTML by four or more spaces
-    # makes Markdown treat it as a code block, which adds an unwanted Copy button.
-    disclaimer_html = """<style>
-/* Reserve space for the disclaimer below Streamlit's pinned chat composer. */
-div[data-testid="stBottom"] {
-    bottom: 30px !important;
-    padding-bottom: 0 !important;
-}
-div[data-testid="stChatInput"] {
-    margin-bottom: 0 !important;
-}
-.exegesis-sticky-disclaimer {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 998;
-    min-height: 28px;
-    box-sizing: border-box;
-    padding: 5px 12px 6px;
-    text-align: center;
-    font-size: 0.78rem;
-    line-height: 1.2;
-    color: var(--text-color, inherit);
-    background: var(--background-color, transparent);
-    border-top: 1px solid rgba(128, 128, 128, 0.22);
-}
-</style>
-<div class="exegesis-sticky-disclaimer">Exegesis AI can make mistakes. Double check important information.</div>"""
-    st.markdown(disclaimer_html, unsafe_allow_html=True)
+    """Keep the accuracy disclaimer directly below the pinned chat composer."""
+    st.markdown(
+        """<style>
+        /* Lift Streamlit's pinned composer slightly to make room for the disclaimer. */
+        div[data-testid="stBottom"] {
+            bottom: 30px !important;
+            padding-bottom: 0 !important;
+        }
+        div[data-testid="stChatInput"] {
+            margin-bottom: 0 !important;
+        }
+        .exegesis-sticky-disclaimer {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 998;
+            min-height: 28px;
+            box-sizing: border-box;
+            padding: 5px 12px 6px;
+            text-align: center;
+            font-size: 0.78rem;
+            line-height: 1.2;
+            color: var(--text-color);
+            background: var(--background-color);
+            border-top: 1px solid rgba(128, 128, 128, 0.22);
+        }
+        </style>
+        <div class="exegesis-sticky-disclaimer">
+            Exegesis AI can make mistakes. Double check important information.
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
 
 def render_solo_study_chat():
