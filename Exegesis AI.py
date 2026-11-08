@@ -9,6 +9,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime, timezone, timedelta, date
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import base64
 import json
 import streamlit.components.v1 as components
@@ -124,7 +125,7 @@ def save_user_session():
                 "account_type": st.session_state.get("account_type", ""),
                 "parent_mode": st.session_state.get("parent_mode", ""),
                 "profile_pic": st.session_state.get("profile_pic", ""),
-                "user_city": st.session_state.get("user_city", "London"),
+                "user_city": st.session_state.get("user_city", ""),
                 "tutor_prompt": st.session_state.get("tutor_prompt", TUTOR_PROMPT),
                 "grade": st.session_state.get("grade", ""),
                 "section": st.session_state.get("section", ""),
@@ -163,6 +164,87 @@ def get_weather(city_name):
     except Exception:
         pass
     return "Unable to fetch weather data."
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def get_city_timezone(city_name):
+    """Resolve a city through Open-Meteo and return its IANA timezone."""
+    city = str(city_name or "").strip()
+    if not city:
+        return None
+    try:
+        response = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1, "language": "en", "format": "json"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        results = response.json().get("results") or []
+        if not results:
+            return None
+        timezone_name = results[0].get("timezone")
+        if timezone_name:
+            ZoneInfo(timezone_name)  # Validate before caching/using it.
+            return timezone_name
+    except (requests.RequestException, ValueError, ZoneInfoNotFoundError, TypeError):
+        return None
+    return None
+
+
+def get_city_local_datetime(city_name):
+    """Return the city's current local datetime, or None if it cannot be resolved."""
+    timezone_name = get_city_timezone(city_name)
+    if not timezone_name:
+        return None
+    try:
+        return datetime.now(ZoneInfo(timezone_name))
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+# A deliberately curated set of widely celebrated occasions. Fixed-date
+# observances are stable; movable lunar-calendar dates are listed by year and
+# should be reviewed annually against the user's local observance.
+FESTIVAL_DATES = {
+    (1, 1): ("Happy New Year", "🎉"),
+    (1, 13): ("Happy Lohri", "🔥"),
+    (1, 14): ("Happy Uttarayan and Makar Sankranti", "🪁"),
+    (1, 15): ("Happy Pongal", "🌾"),
+    (1, 26): ("Happy Republic Day", "🇮🇳"),
+    (8, 15): ("Happy Independence Day", "🇮🇳"),
+    (10, 2): ("Happy Gandhi Jayanti", "🇮🇳"),
+    (10, 31): ("Happy Halloween", "🎃"),
+    (12, 25): ("Merry Christmas", "🎄"),
+}
+MOVABLE_FESTIVAL_DATES = {
+    # Dates are Gregorian dates for major commonly observed Indian celebrations.
+    2026: {(3, 4): ("Happy Holi", "🎨"), (11, 8): ("Happy Diwali", "🪔")},
+    2027: {(3, 22): ("Happy Holi", "🎨"), (10, 29): ("Happy Diwali", "🪔")},
+    2028: {(3, 11): ("Happy Holi", "🎨"), (10, 17): ("Happy Diwali", "🪔")},
+    2029: {(3, 1): ("Happy Holi", "🎨"), (11, 5): ("Happy Diwali", "🪔")},
+    2030: {(3, 20): ("Happy Holi", "🎨"), (10, 26): ("Happy Diwali", "🪔")},
+}
+
+
+def get_festival_greeting(local_date):
+    """Return one concise greeting for a recognised celebration, if any."""
+    if not local_date:
+        return None
+    greeting = MOVABLE_FESTIVAL_DATES.get(local_date.year, {}).get(
+        (local_date.month, local_date.day)
+    ) or FESTIVAL_DATES.get((local_date.month, local_date.day))
+    return greeting
+
+
+def get_personalised_welcome(suffix=""):
+    """Use a festival greeting instead of the ordinary Hello greeting."""
+    name = st.session_state.get("full_name") or "there"
+    city_time = get_city_local_datetime(st.session_state.get("user_city", ""))
+    festival = get_festival_greeting(city_time.date()) if city_time else None
+    if festival:
+        text, emoji = festival
+        return f"{text}, {name}! {emoji}{suffix}"
+    return f"Hello {name}!{suffix}"
 
 
 # =====================================================================
@@ -292,7 +374,7 @@ if "active_group_id" not in st.session_state:
 if "profile_pic" not in st.session_state:
     st.session_state["profile_pic"] = ""
 if "user_city" not in st.session_state:
-    st.session_state["user_city"] = "London"
+    st.session_state["user_city"] = ""
 if "app_mode" not in st.session_state:
     st.session_state["app_mode"] = "Solo Study / AI Chat"
 if "parent_verified" not in st.session_state:
@@ -350,7 +432,7 @@ def _attempt_login(username, password):
     st.session_state["chat_history"] = existing_history
     st.session_state["friends"] = user_data.get("friends", [])
     st.session_state["nicknames"] = user_data.get("nicknames", {})
-    st.session_state["user_city"] = user_data.get("user_city", "London")
+    st.session_state["user_city"] = user_data.get("user_city", "")
     st.session_state["tutor_prompt"] = user_data.get("tutor_prompt", TUTOR_PROMPT)
     st.session_state["profile_pic"] = user_data.get("profile_pic", "")
     st.session_state["logged_in"] = True
@@ -572,7 +654,7 @@ def render_auth_screen():
                             "school_location": school_location.strip(),
                             "grade": student_grade.strip() if acc_choice == "Student Portal" else "",
                             "section": student_section.strip().upper() if acc_choice == "Student Portal" else "",
-                            "user_city": "London",
+                            "user_city": "",
                             "profile_pic": "",
                             "admin_role": "user"
                         }
@@ -622,7 +704,8 @@ if user_doc_snapshot.exists:
 
     if bday_str:
         bday_date = datetime.fromisoformat(bday_str).date()
-        today_date = date.today()
+        city_now_for_birthday = get_city_local_datetime(st.session_state.get("user_city", ""))
+        today_date = city_now_for_birthday.date() if city_now_for_birthday else datetime.now(timezone.utc).date()
 
         if (
             bday_date.month == today_date.month
@@ -697,7 +780,7 @@ if action_doc.exists:
 # SECTION 10: PARENT LINK VERIFICATION PROTOCOLS
 # =====================================================================
 if user_role == "Student Portal" and not st.session_state["parent_verified"]:
-    st.title(f"Hello {st.session_state['full_name']}!")
+    st.title(get_personalised_welcome())
     st.subheader("🛡️ Parent Verification Check")
 
     verification = st.radio(
@@ -725,7 +808,7 @@ if user_role == "Student Portal":
     for req in parent_reqs:
         p_data = req.to_dict()
 
-        st.title(f"Hello {st.session_state['full_name']}!")
+        st.title(get_personalised_welcome())
         st.subheader("🛡️ Parent Link Request")
 
         st.write(
@@ -1182,16 +1265,24 @@ with st.sidebar:
 
     user_location = st.text_input(
         "Location:",
-        value=st.session_state["user_city"]
+        value=st.session_state["user_city"],
+        placeholder="Enter your city",
+        help="Enter a city to see its weather, local time, and local festival greeting."
     )
 
     if user_location != st.session_state["user_city"]:
         st.session_state["user_city"] = user_location
         save_user_session()
 
-    st.markdown(
-        get_weather(st.session_state["user_city"])
-    )
+    if st.session_state["user_city"].strip():
+        st.markdown(get_weather(st.session_state["user_city"]))
+        city_now = get_city_local_datetime(st.session_state["user_city"])
+        if city_now:
+            st.caption("🕒 Local time: " + city_now.strftime("%A, %d %B %Y · %I:%M %p"))
+        else:
+            st.caption("Local time unavailable. Check the city spelling and try again.")
+    else:
+        st.info("Enter your city to see the weather and local time.")
 
     st.markdown("---")
 
@@ -1343,10 +1434,7 @@ if user_role == "Parent Portal":
     if doc.exists and not doc.to_dict().get(
         "verified_by_child", True
     ):
-        st.title(
-            f"Hello {st.session_state['full_name']} "
-            "(Parent Dashboard)"
-        )
+        st.title(get_personalised_welcome(" (Parent Dashboard)"))
 
         st.warning(
             "⏳ Waiting for your child to confirm your request. "
@@ -1359,10 +1447,7 @@ if user_role == "Parent Portal":
 
         st.stop()
 
-    st.title(
-        f"Hello {st.session_state['full_name']} "
-        "(Parent Dashboard)"
-    )
+    st.title(get_personalised_welcome(" (Parent Dashboard)"))
 
     st.subheader("👶 Manage Children")
 
@@ -1628,7 +1713,7 @@ def render_user_prompt_editor(message_index):
 
 def render_solo_study_chat():
 
-    st.title(f"Hello {st.session_state['full_name']}!")
+    st.title(get_personalised_welcome())
 
     if user_role == "Student Portal":
         student_data = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
@@ -1952,10 +2037,7 @@ def render_solo_study_chat():
 # =====================================================================
 def render_group_study_chats():
 
-    st.title(
-        f"Hello {st.session_state['full_name']}! "
-        "👥 Friends & Study Groups"
-    )
+    st.title(get_personalised_welcome(" 👥 Friends & Study Groups"))
 
     tab1, tab2 = st.tabs([
         "Friend Requests & Nicknames",
