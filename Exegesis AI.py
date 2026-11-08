@@ -1839,6 +1839,42 @@ def render_user_prompt_editor(message_index):
             st.rerun()
 
 
+def render_sticky_chat_disclaimer():
+    """Keep the accuracy disclaimer directly below the pinned chat composer."""
+    st.markdown(
+        """<style>
+        /* Lift Streamlit's pinned composer slightly to make room for the disclaimer. */
+        div[data-testid="stBottom"] {
+            bottom: 30px !important;
+            padding-bottom: 0 !important;
+        }
+        div[data-testid="stChatInput"] {
+            margin-bottom: 0 !important;
+        }
+        .exegesis-sticky-disclaimer {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 998;
+            min-height: 28px;
+            box-sizing: border-box;
+            padding: 5px 12px 6px;
+            text-align: center;
+            font-size: 0.78rem;
+            line-height: 1.2;
+            color: var(--text-color);
+            background: var(--background-color);
+            border-top: 1px solid rgba(128, 128, 128, 0.22);
+        }
+        </style>
+        <div class="exegesis-sticky-disclaimer">
+            Exegesis AI can make mistakes. Double check important information.
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+
 def render_solo_study_chat():
 
     st.title(get_personalised_welcome())
@@ -1894,8 +1930,10 @@ def render_solo_study_chat():
         ):
             st.markdown(msg["content"])
             if msg["role"] == "user":
-                if st.button("✏️", key=f"edit_user_prompt_{msg_index}", help="Edit your message"):
-                    st.session_state["editing_user_prompt"] = msg_index
+                edit_col, _ = st.columns([1, 8])
+                with edit_col:
+                    if st.button("✏️ Edit", key=f"edit_user_prompt_{msg_index}", help="Edit this message"):
+                        st.session_state["editing_user_prompt"] = msg_index
                 if st.session_state.get("editing_user_prompt") == msg_index:
                     render_user_prompt_editor(msg_index)
             if msg["role"] == "assistant":
@@ -1921,7 +1959,7 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # CHAT INPUT
     # ---------------------------------------------------------------
-    st.caption("Exegesis AI can make mistakes. Double check important information.")
+    render_sticky_chat_disclaimer()
     # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
     prompt = st.chat_input(
         "Ask a study question... (press Enter to send) 💬",
@@ -2654,7 +2692,7 @@ def render_group_study_chats():
         # --------------------------------------------------------
         # GROUP CHAT INPUT
         # --------------------------------------------------------
-        st.caption("Exegesis AI can make mistakes. Double check important information.")
+        render_sticky_chat_disclaimer()
         # Streamlit chat_input sends the message with Enter and stays anchored at the bottom.
         group_input = st.chat_input(
             "Message group... (press Enter to send) 💬",
