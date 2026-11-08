@@ -353,7 +353,7 @@ def render_answer_actions(answer_text, key="ai_answer"):
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
     theme = str(st.get_option("theme.base") or "light").lower()
     dark = theme == "dark"
-    bg = "#252a34" if dark else "#ffffff"
+    bg = "transparent"
     fg = "#f3f4f6" if dark else "#202938"
     border = "#596273" if dark else "#cbd5e1"
     hover = "#343b49" if dark else "#f1f5f9"
@@ -363,11 +363,15 @@ def render_answer_actions(answer_text, key="ai_answer"):
     <div id="actions_{safe_key}" style="display:flex;align-items:center;gap:6px;
          margin:5px 0 10px;font-family:Arial,sans-serif;">
       <button id="speak_{safe_key}" type="button" title="Listen to answer" aria-label="Listen to answer"
-        style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
-        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:17px;cursor:pointer;">🔊</button>
+        style="width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
+        background:transparent;color:{fg};border:1px solid transparent;border-radius:10px;cursor:pointer;padding:0;">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      </button>
       <button id="copy_{safe_key}" type="button" title="Copy answer" aria-label="Copy answer"
-        style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
-        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:18px;cursor:pointer;">⧉</button>
+        style="width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;
+        background:transparent;color:{fg};border:1px solid transparent;border-radius:10px;cursor:pointer;padding:0;">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
+      </button>
       <span id="status_{safe_key}" role="status" aria-live="polite"
         style="font-size:12px;color:{status};"></span>
     </div>
@@ -1898,10 +1902,9 @@ def render_user_prompt_editor(message_index):
 
 
 def render_sticky_chat_disclaimer():
-    """Keep the accuracy disclaimer directly below the pinned chat composer."""
+    """Render the accuracy disclaimer as real HTML, not a Markdown code block."""
     st.markdown(
         """<style>
-        /* Lift Streamlit's pinned composer slightly to make room for the disclaimer. */
         div[data-testid="stBottom"] {
             bottom: 30px !important;
             padding-bottom: 0 !important;
@@ -1926,9 +1929,7 @@ def render_sticky_chat_disclaimer():
             border-top: 1px solid rgba(128, 128, 128, 0.22);
         }
         </style>
-        <div class="exegesis-sticky-disclaimer">
-            Exegesis AI can make mistakes. Double check important information.
-        </div>""",
+<div class="exegesis-sticky-disclaimer">Exegesis AI can make mistakes. Double check important information.</div>""",
         unsafe_allow_html=True,
     )
 
