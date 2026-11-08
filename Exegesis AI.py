@@ -1975,6 +1975,32 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # DISPLAY EXISTING CHAT MESSAGES
     # ---------------------------------------------------------------
+    # Keep the edit control monochrome and theme-friendly without changing
+    # the appearance of other Streamlit buttons.
+    st.markdown(
+        """<style>
+        div[class*="st-key-edit_user_prompt_"] button {
+            color: #858b94 !important;
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            border-radius: 9px !important;
+            min-height: 34px !important;
+            width: 36px !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+        }
+        div[class*="st-key-edit_user_prompt_"] button:hover {
+            color: #6b7280 !important;
+            background: rgba(128, 128, 128, 0.13) !important;
+            border-color: rgba(128, 128, 128, 0.22) !important;
+        }
+        div[class*="st-key-edit_user_prompt_"] button:focus {
+            outline: 2px solid #8b929c !important;
+            outline-offset: 2px !important;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
     for msg_index, msg in enumerate(st.session_state["messages"]):
 
         avatar_img = (
@@ -1989,9 +2015,9 @@ def render_solo_study_chat():
         ):
             st.markdown(msg["content"])
             if msg["role"] == "user":
-                edit_col, _ = st.columns([1, 8])
+                edit_col, _ = st.columns([0.45, 8.55])
                 with edit_col:
-                    if st.button("✏️ Edit", key=f"edit_user_prompt_{msg_index}", help="Edit this message"):
+                    if st.button("✎", key=f"edit_user_prompt_{msg_index}", help="Edit this message", type="secondary"):
                         st.session_state["editing_user_prompt"] = msg_index
                 if st.session_state.get("editing_user_prompt") == msg_index:
                     render_user_prompt_editor(msg_index)
