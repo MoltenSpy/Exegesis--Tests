@@ -49,7 +49,9 @@ def init_firebase():
 try:
     db = init_firebase()
 except Exception as e:
-    st.error(f"⚠️ Firebase connection error: {e}")
+    # Keep secrets and credential contents out of the browser-facing error.
+    st.error("⚠️ Exegesis AI could not connect to its database. Please check the Firebase configuration in Streamlit Secrets and the deployment logs.")
+    st.caption(f"Error type: {type(e).__name__}. No secret values are displayed.")
     st.stop()
 
 
@@ -61,6 +63,51 @@ def get_user_doc(username):
     doc_ref = db.collection("users").document(username)
     doc = doc_ref.get()
     return doc_ref, doc
+
+
+def normalize_school_value(value):
+    """Normalize school identifiers for consistent matching across accounts."""
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def find_school_account(school_name, school_location=""):
+    """Find a registered School Account by name and, when supplied, location."""
+    wanted_name = normalize_school_value(school_name)
+    wanted_location = normalize_school_value(school_location)
+    if not wanted_name:
+        return None, False
+    same_name_found = False
+    for snap in db.collection("users").where("account_type", "==", "School Account").stream():
+        data = snap.to_dict() or {}
+        if normalize_school_value(data.get("school_name")) == wanted_name:
+            same_name_found = True
+            if wanted_location and normalize_school_value(data.get("school_location")) == wanted_location:
+                return data, True
+    return None, same_name_found
+
+
+def get_class_records(collection_name, school_name, school_location, grade, section):
+    """Fetch class items and filter consistently without requiring composite indexes."""
+    wanted = (
+        normalize_school_value(school_name),
+        normalize_school_value(school_location),
+        normalize_school_value(grade),
+        normalize_school_value(section),
+    )
+    results = []
+    for snap in db.collection(collection_name).stream():
+        item = snap.to_dict() or {}
+        key = (
+            normalize_school_value(item.get("school_name")),
+            normalize_school_value(item.get("school_location")),
+            normalize_school_value(item.get("grade")),
+            normalize_school_value(item.get("section")),
+        )
+        if key == wanted:
+            item["id"] = snap.id
+            results.append(item)
+    results.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+    return results
 
 
 def save_user_session():
@@ -79,6 +126,10 @@ def save_user_session():
                 "profile_pic": st.session_state.get("profile_pic", ""),
                 "user_city": st.session_state.get("user_city", "London"),
                 "tutor_prompt": st.session_state.get("tutor_prompt", TUTOR_PROMPT),
+                "grade": st.session_state.get("grade", ""),
+                "section": st.session_state.get("section", ""),
+                "school_name": st.session_state.get("school_name", ""),
+                "school_location": st.session_state.get("school_location", ""),
                 "last_active": datetime.now(timezone.utc).isoformat()
             }, merge=True)
         except Exception as e:
@@ -140,7 +191,7 @@ def get_active_tutor_prompt():
 
 
 def render_answer_actions(answer_text, key="ai_answer"):
-    """Render theme-aware Listen and Copy controls below each AI answer."""
+    """Compact icon-only Copy and Listen controls with hover tooltips."""
     safe_text = json.dumps(str(answer_text or ""), ensure_ascii=False)
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", str(key))
     theme = str(st.get_option("theme.base") or "light").lower()
@@ -151,21 +202,15 @@ def render_answer_actions(answer_text, key="ai_answer"):
     hover = "#343b49" if dark else "#f1f5f9"
     status = "#cbd5e1" if dark else "#475569"
 
-    html = f"""
-    <div id="actions_{safe_key}" style="display:flex;align-items:center;gap:8px;
-         flex-wrap:wrap;margin:7px 0 12px;font-family:Arial,sans-serif;">
-      <button id="speak_{safe_key}" type="button" title="Listen to answer"
-        style="display:inline-flex;align-items:center;gap:7px;background:{bg};color:{fg};
-        border:1px solid {border};border-radius:18px;padding:7px 12px;font-size:13px;
-        font-weight:600;cursor:pointer;">
-        <span>🔊</span><span>Listen</span>
-      </button>
-      <button id="copy_{safe_key}" type="button" title="Copy answer as plain text"
-        style="display:inline-flex;align-items:center;gap:7px;background:{bg};color:{fg};
-        border:1px solid {border};border-radius:18px;padding:7px 12px;font-size:13px;
-        font-weight:600;cursor:pointer;">
-        <span>⧉</span><span>Copy</span>
-      </button>
+    html = rf"""
+    <div id="actions_{safe_key}" style="display:flex;align-items:center;gap:6px;
+         margin:5px 0 10px;font-family:Arial,sans-serif;">
+      <button id="speak_{safe_key}" type="button" title="Listen to answer" aria-label="Listen to answer"
+        style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:17px;cursor:pointer;">🔊</button>
+      <button id="copy_{safe_key}" type="button" title="Copy answer" aria-label="Copy answer"
+        style="width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;
+        background:{bg};color:{fg};border:1px solid {border};border-radius:10px;font-size:18px;cursor:pointer;">⧉</button>
       <span id="status_{safe_key}" role="status" aria-live="polite"
         style="font-size:12px;color:{status};"></span>
     </div>
@@ -174,19 +219,17 @@ def render_answer_actions(answer_text, key="ai_answer"):
       const raw = {safe_text};
       const clean = (value) => {{
         let t = String(value ?? '');
-        t = t.replace(/^\\s*```[^\\n]*\\n?/gm, '').replace(/^\\s*```\\s*$/gm, '');
-        t = t.replace(/!\\[([^\\]]*)\\]\\([^)]*\\)/g, '$1');
-        t = t.replace(/\\[([^\\]]+)\\]\\([^)]*\\)/g, '$1');
-        t = t.replace(/<[^>]*>/g, '');
-        t = t.replace(/^\\s{0,3}#{1,6}\\s+/gm, '').replace(/^\\s*>\\s?/gm, '');
-        t = t.replace(/^\\s*[-+]\\s+/gm, '• ');
-        t = t.replace(/\\*{{2,3}}([^*]+?)\\*{{2,3}}/g, '$1');
-        t = t.replace(/_{{2,3}}([^_]+?)_{{2,3}}/g, '$1');
-        t = t.replace(/\\*{{2,}}/g, '').replace(/_{{2,}}/g, '');
+        t = t.replace(/^\s*```[^\n]*\n?/gm, '').replace(/^\s*```\s*$/gm, '');
+        t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+        t = t.replace(/<[^>]*>/g, '').replace(/^\s{0,3}#{1,6}\s+/gm, '').replace(/^\s*>\s?/gm, '');
+        t = t.replace(/^\s*[-+]\s+/gm, '• ').replace(/\*{{2,3}}([^*]+?)\*{{2,3}}/g, '$1');
+        t = t.replace(/_{{2,3}}([^_]+?)_{{2,3}}/g, '$1').replace(/\*{{2,}}/g, '').replace(/_{{2,}}/g, '');
         t = t.replace(/~~([^~]+?)~~/g, '$1').replace(/`([^`]+)`/g, '$1');
-        return t.replace(/\\n{{3,}}/g, '\\n\\n').trim();
+        return t.replace(/\n{{3,}}/g, '\n\n').trim();
       }};
       const plain = clean(raw);
+      // Remove pictographs and emoji presentation sequences from spoken output only.
+      const spoken = Array.from(plain).filter(ch => {{ const cp = ch.codePointAt(0); return !((cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) || cp === 0xFE0F || cp === 0xFE0E || cp === 0x200D); }}).join('').replace(/\s+/g, ' ').trim();
       const speak = document.getElementById("speak_{safe_key}");
       const copy = document.getElementById("copy_{safe_key}");
       const statusEl = document.getElementById("status_{safe_key}");
@@ -199,8 +242,8 @@ def render_answer_actions(answer_text, key="ai_answer"):
       speak.addEventListener('click', () => {{
         if (!('speechSynthesis' in window)) {{ statusEl.textContent = 'Speech is not supported in this browser.'; return; }}
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(plain);
-        utterance.rate = 1;
+        const utterance = new SpeechSynthesisUtterance(spoken);
+        utterance.rate = 0.96; utterance.pitch = 1.04;
         utterance.onstart = () => statusEl.textContent = 'Speaking…';
         utterance.onend = () => statusEl.textContent = '';
         utterance.onerror = () => statusEl.textContent = 'Could not play audio.';
@@ -208,25 +251,19 @@ def render_answer_actions(answer_text, key="ai_answer"):
       }});
       copy.addEventListener('click', async () => {{
         try {{
-          if (navigator.clipboard && window.isSecureContext) {{
-            await navigator.clipboard.writeText(plain);
-          }} else {{
-            const area = document.createElement('textarea');
-            area.value = plain; area.setAttribute('readonly', '');
-            area.style.position = 'fixed'; area.style.left = '-9999px';
-            document.body.appendChild(area); area.select();
-            const ok = document.execCommand('copy'); area.remove();
-            if (!ok) throw new Error('Copy failed');
+          if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(plain);
+          else {{
+            const area = document.createElement('textarea'); area.value = plain; area.setAttribute('readonly', '');
+            area.style.position = 'fixed'; area.style.left = '-9999px'; document.body.appendChild(area);
+            area.select(); const ok = document.execCommand('copy'); area.remove(); if (!ok) throw new Error('Copy failed');
           }}
-          statusEl.textContent = 'Copied as plain text';
-          copy.querySelector('span:last-child').textContent = 'Copied';
-          setTimeout(() => copy.querySelector('span:last-child').textContent = 'Copy', 1400);
+          statusEl.textContent = 'Copied';
         }} catch (e) {{ statusEl.textContent = 'Could not copy automatically.'; }}
       }});
     }})();
     </script>
     """
-    components.html(html, height=58, scrolling=False)
+    components.html(html, height=48, scrolling=False)
 
 
 # =====================================================================
@@ -262,6 +299,8 @@ if "parent_verified" not in st.session_state:
     st.session_state["parent_verified"] = False
 if "tutor_prompt" not in st.session_state:
     st.session_state["tutor_prompt"] = TUTOR_PROMPT
+if "editing_user_prompt" not in st.session_state:
+    st.session_state["editing_user_prompt"] = None
 
 
 # =====================================================================
@@ -286,8 +325,16 @@ def _attempt_login(username, password):
 
     st.session_state["user_name"] = clean_name
     st.session_state["full_name"] = user_data.get("full_name", clean_name)
-    st.session_state["account_type"] = user_data.get("account_type", "Student Portal")
+    stored_role = user_data.get("account_type", "Student Portal")
+    if stored_role in ["Principal Account", "Principal Portal"]:
+        stored_role = "School Account"
+    st.session_state["account_type"] = stored_role
     st.session_state["parent_mode"] = user_data.get("parent_mode", "")
+    st.session_state["parent_verified"] = user_data.get("parent_verified", False)
+    st.session_state["grade"] = user_data.get("grade", "")
+    st.session_state["section"] = user_data.get("section", "")
+    st.session_state["school_name"] = user_data.get("school_name", "")
+    st.session_state["school_location"] = user_data.get("school_location", "")
 
     existing_msgs = user_data.get("messages", [])
     existing_history = user_data.get("chat_history", [])
@@ -384,8 +431,24 @@ def render_auth_screen():
             )
 
             school_name = ""
-            if acc_choice == "School Account":
-                school_name = st.text_input("School Name")
+            school_location = ""
+            student_grade = ""
+            student_section = ""
+            if acc_choice in ["Student Portal", "Teacher Portal", "School Account"]:
+                school_name = st.text_input("School Name", key="register_school_name")
+                school_location = st.text_input(
+                    "School Location (City / Area)",
+                    key="register_school_location",
+                    help="Enter the city or area where the school is located."
+                )
+            if acc_choice == "Student Portal":
+                student_grade = st.selectbox(
+                    "Your Grade", [f"Grade {n}" for n in range(1, 13)],
+                    key="register_student_grade"
+                )
+                student_section = st.text_input(
+                    "Your Section", placeholder="e.g. A", key="register_student_section"
+                )
 
             parent_sub = ""
             child_usernames_input = ""
@@ -416,6 +479,15 @@ def render_auth_screen():
                 elif username_taken:
                     st.error("This username is already taken.")
 
+                elif acc_choice in ["Student Portal", "Teacher Portal", "School Account"] and not school_name.strip():
+                    st.error("Please enter your school name.")
+
+                elif acc_choice in ["Student Portal", "Teacher Portal", "School Account"] and not school_location.strip():
+                    st.error("Please enter the school location. A school name alone is not enough to identify the correct school.")
+
+                elif acc_choice == "Student Portal" and not student_section.strip():
+                    st.error("Please enter your class section.")
+
                 elif (
                     acc_choice == "Parent Portal"
                     and not child_usernames_input.strip()
@@ -423,6 +495,21 @@ def render_auth_screen():
                     st.error("Please enter at least one child's username.")
 
                 else:
+                    if acc_choice == "School Account":
+                        matched_school, same_name_found = find_school_account(school_name, school_location)
+                        if matched_school:
+                            st.error("This school is already registered with that location. Please log in to its existing School Account.")
+                            st.stop()
+                        # A matching name without a location is intentionally not accepted;
+                        # the required location above distinguishes schools/campuses.
+                    if acc_choice in ["Student Portal", "Teacher Portal"]:
+                        registered_school, same_name_found = find_school_account(school_name, school_location)
+                        if not registered_school:
+                            if same_name_found:
+                                st.error("A school with this name is registered, but its location does not match. Check the location with your school administrator.")
+                            else:
+                                st.error("This school is not registered yet. Ask your school to create a School Account first.")
+                            st.stop()
                     if acc_choice == "Parent Portal":
                         parsed_children = [
                             c.strip()
@@ -481,7 +568,10 @@ def render_auth_screen():
                             "nicknames": {},
                             "account_type": acc_choice,
                             "parent_mode": parent_sub,
-                            "school_name": school_name,
+                            "school_name": school_name.strip(),
+                            "school_location": school_location.strip(),
+                            "grade": student_grade.strip() if acc_choice == "Student Portal" else "",
+                            "section": student_section.strip().upper() if acc_choice == "Student Portal" else "",
                             "user_city": "London",
                             "profile_pic": "",
                             "admin_role": "user"
@@ -618,6 +708,7 @@ if user_role == "Student Portal" and not st.session_state["parent_verified"]:
     if verification != "Select...":
         if verification == "Yes":
             st.session_state["parent_verified"] = True
+            user_doc_ref.set({"parent_verified": True}, merge=True)
             st.rerun()
         else:
             st.warning(
@@ -1085,33 +1176,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    with st.expander("🛠️ Edit AI Tutor Prompt"):
-        st.caption(
-            "Customize the instructions Exegesis AI follows in solo and group chats. "
-            "Your changes are saved to your account."
-        )
-        edited_tutor_prompt = st.text_area(
-            "AI instructions",
-            value=get_active_tutor_prompt(),
-            height=260,
-            key=f"tutor_prompt_editor_{hash(get_active_tutor_prompt())}"
-        )
-        prompt_col1, prompt_col2 = st.columns(2)
-        with prompt_col1:
-            if st.button("Save Prompt", use_container_width=True):
-                if edited_tutor_prompt.strip():
-                    st.session_state["tutor_prompt"] = edited_tutor_prompt.strip()
-                    save_user_session()
-                    st.success("AI prompt saved.")
-                    st.rerun()
-                else:
-                    st.error("The prompt cannot be empty.")
-        with prompt_col2:
-            if st.button("Reset Prompt", use_container_width=True):
-                st.session_state["tutor_prompt"] = TUTOR_PROMPT
-                save_user_session()
-                st.success("Default prompt restored.")
-                st.rerun()
+    # The user's sent message is editable in the chat itself using the pencil icon.
 
     st.subheader("🌤️ Weather Report")
 
@@ -1386,54 +1451,140 @@ if user_role == "Parent Portal":
 
 
 # =====================================================================
-# SECTION 14: TEACHER PORTAL DASHBOARD VIEW
+# SECTION 14: SCHOOL & TEACHER PORTAL DASHBOARDS
 # =====================================================================
 if user_role == "Teacher Portal":
+    teacher_data = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
+    school_name = teacher_data.get("school_name", st.session_state.get("school_name", ""))
+    school_location = teacher_data.get("school_location", st.session_state.get("school_location", ""))
+    st.title(f"🍎 Teacher Dashboard — {st.session_state['full_name']}")
+    st.caption(f"{school_name} · {school_location}")
 
-    st.title(
-        f"🍎 Teacher Dashboard "
-        f"({st.session_state['full_name']})"
-    )
-
-    t_tab1, t_tab2 = st.tabs([
-        "📩 Parent Messages",
-        "📋 Class Assignments"
-    ])
-
-    with t_tab1:
+    teacher_tabs = st.tabs(["📩 Parent Messages", "📋 Homework & Tasks", "📚 Learning Resources"])
+    with teacher_tabs[0]:
         st.subheader("Messages from Parents")
-
         p_msgs = db.collection("teacher_parent_messages").stream()
-
+        found_messages = False
         for pm in p_msgs:
-            pm_data = pm.to_dict()
+            pm_data = pm.to_dict() or {}
+            if normalize_school_value(pm_data.get("school_name")) in ("", normalize_school_value(school_name)):
+                found_messages = True
+                st.info(f"**From:** {pm_data.get('parent', 'Parent')}\n\n**Message:** {pm_data.get('message', '')}")
+        if not found_messages:
+            st.caption("No parent messages yet.")
 
-            st.info(
-                f"**From:** {pm_data.get('parent', 'Parent')}\n\n"
-                f"**Message:** {pm_data.get('message')}"
-            )
-
-    with t_tab2:
-        st.subheader("Create Classroom Task")
-
-        task_title = st.text_input("Task Title")
-        task_desc = st.text_area("Task Instructions")
-
-        if st.button("Assign Task"):
-            if task_title.strip():
+    with teacher_tabs[1]:
+        st.subheader("Assign Homework / Task")
+        with st.form("teacher_create_task_form"):
+            grade = st.selectbox("Select Grade", [f"Grade {n}" for n in range(1, 13)], key="teacher_task_grade")
+            section = st.selectbox("Select Section", [chr(code) for code in range(65, 91)], key="teacher_task_section")
+            title = st.text_input("Task Title", key="teacher_task_title")
+            instructions = st.text_area("Task Instructions", key="teacher_task_instructions")
+            due_date = st.date_input("Due Date", value=date.today(), key="teacher_task_due")
+            submitted = st.form_submit_button("Assign to this Grade & Section", use_container_width=True)
+        if submitted:
+            if not section.strip() or not title.strip():
+                st.error("Please enter a section and task title.")
+            else:
                 db.collection("assignments").add({
+                    "school_name": school_name,
+                    "school_location": school_location,
+                    "grade": grade,
+                    "section": section.strip().upper(),
+                    "title": title.strip(),
+                    "instructions": instructions.strip(),
+                    "due_date": due_date.isoformat(),
                     "teacher": st.session_state["full_name"],
-                    "title": task_title.strip(),
-                    "instructions": task_desc.strip(),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "type": "task"
+                })
+                st.success(f"Task assigned to {grade}, Section {section.strip().upper()}.")
+
+    with teacher_tabs[2]:
+        st.subheader("Share a Learning Resource")
+        with st.form("teacher_create_resource_form"):
+            resource_grade = st.selectbox("Select Grade", [f"Grade {n}" for n in range(1, 13)], key="teacher_resource_grade")
+            resource_section = st.selectbox("Select Section", [chr(code) for code in range(65, 91)], key="teacher_resource_section")
+            resource_title = st.text_input("Resource Title", key="teacher_resource_title")
+            resource_description = st.text_area("Description", key="teacher_resource_description")
+            resource_url = st.text_input("Resource Link (optional)", placeholder="https://...", key="teacher_resource_url")
+            resource_submit = st.form_submit_button("Share Resource", use_container_width=True)
+        if resource_submit:
+            if not resource_section.strip() or not resource_title.strip():
+                st.error("Please enter a section and resource title.")
+            elif resource_url.strip() and not resource_url.strip().startswith(("https://", "http://")):
+                st.error("Please enter a valid link beginning with http:// or https://.")
+            else:
+                db.collection("class_resources").add({
+                    "school_name": school_name,
+                    "school_location": school_location,
+                    "grade": resource_grade,
+                    "section": resource_section.strip().upper(),
+                    "title": resource_title.strip(),
+                    "description": resource_description.strip(),
+                    "url": resource_url.strip(),
+                    "teacher": st.session_state["full_name"],
                     "created_at": datetime.now(timezone.utc).isoformat()
                 })
-
-                st.success("Task assigned successfully!")
-
+                st.success(f"Resource shared with {resource_grade}, Section {resource_section.strip().upper()}.")
     st.stop()
 
 
-# =====================================================================
+if user_role == "School Account":
+    school_data = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
+    school_name = school_data.get("school_name", "")
+    school_location = school_data.get("school_location", "")
+    st.title(f"🏫 School Account — {school_name}")
+    st.caption(school_location)
+    school_users = []
+    for account in db.collection("users").stream():
+        data = account.to_dict() or {}
+        if normalize_school_value(data.get("school_name")) == normalize_school_value(school_name) and normalize_school_value(data.get("school_location")) == normalize_school_value(school_location):
+            school_users.append((account.id, data))
+    students = [u for _, u in school_users if u.get("account_type") == "Student Portal"]
+    teachers = [u for _, u in school_users if u.get("account_type") == "Teacher Portal"]
+    school_tabs = st.tabs(["📊 Overview", "📋 School Tasks", "📚 Shared Resources"])
+    with school_tabs[0]:
+        a, b = st.columns(2)
+        a.metric("Students", len(students))
+        b.metric("Teachers", len(teachers))
+        st.subheader("Registered Teachers")
+        for teacher in teachers:
+            st.write(f"• {teacher.get('full_name', 'Teacher')}")
+        st.subheader("Registered Classes")
+        class_pairs = sorted({(u.get("grade", ""), u.get("section", "")) for u in students if u.get("grade") and u.get("section")})
+        if class_pairs:
+            for grade_value, section_value in class_pairs:
+                st.write(f"• {grade_value} — Section {section_value}")
+        else:
+            st.caption("No student classes registered yet.")
+    with school_tabs[1]:
+        all_tasks = db.collection("assignments").stream()
+        count = 0
+        for task in all_tasks:
+            item = task.to_dict() or {}
+            if normalize_school_value(item.get("school_name")) == normalize_school_value(school_name) and normalize_school_value(item.get("school_location")) == normalize_school_value(school_location):
+                count += 1
+                st.info(f"**{item.get('title', 'Task')}** · {item.get('grade', '')}, Section {item.get('section', '')}\n\n{item.get('instructions', '')}\n\nAssigned by {item.get('teacher', 'Teacher')} · Due: {item.get('due_date', 'Not set')}")
+        if not count:
+            st.caption("No tasks have been assigned yet.")
+    with school_tabs[2]:
+        all_resources = db.collection("class_resources").stream()
+        count = 0
+        for resource in all_resources:
+            item = resource.to_dict() or {}
+            if normalize_school_value(item.get("school_name")) == normalize_school_value(school_name) and normalize_school_value(item.get("school_location")) == normalize_school_value(school_location):
+                count += 1
+                st.markdown(f"**{item.get('title', 'Resource')}** · {item.get('grade', '')}, Section {item.get('section', '')}")
+                if item.get("description"):
+                    st.write(item["description"])
+                if item.get("url"):
+                    st.markdown(f"[Open resource]({item['url']})")
+        if not count:
+            st.caption("No resources have been shared yet.")
+    st.stop()
+
+
 # SECTION 15: MAIN APPLICATION - SOLO STUDY & AI TUTOR CHAT
 # =====================================================================
 def _rerun_current_chat_fragment():
@@ -1446,9 +1597,65 @@ def _rerun_current_chat_fragment():
 # the available main-area width as the sidebar expands or contracts.
 
 
+def render_user_prompt_editor(message_index):
+    """Inline editor for a user's own previously sent chat prompt."""
+    messages = st.session_state.get("messages", [])
+    if not (0 <= message_index < len(messages)):
+        st.session_state["editing_user_prompt"] = None
+        return
+    original = str(messages[message_index].get("content", ""))
+    with st.form(key=f"edit_user_prompt_form_{message_index}"):
+        revised = st.text_area("Edit your message", value=original, key=f"edit_user_prompt_text_{message_index}", height=100)
+        save_col, cancel_col = st.columns(2)
+        with save_col:
+            save = st.form_submit_button("Save changes", use_container_width=True)
+        with cancel_col:
+            cancel = st.form_submit_button("Cancel", use_container_width=True)
+        if save:
+            if revised.strip():
+                messages[message_index]["content"] = revised.strip()
+                # Remove later conversation turns so the next reply uses the edited prompt.
+                st.session_state["messages"] = messages[:message_index + 1]
+                st.session_state["editing_user_prompt"] = None
+                save_user_session()
+                st.rerun()
+            else:
+                st.error("Your message cannot be empty.")
+        elif cancel:
+            st.session_state["editing_user_prompt"] = None
+            st.rerun()
+
+
 def render_solo_study_chat():
 
     st.title(f"Hello {st.session_state['full_name']}!")
+
+    if user_role == "Student Portal":
+        student_data = user_doc_snapshot.to_dict() if user_doc_snapshot.exists else {}
+        student_school = student_data.get("school_name", "")
+        student_location = student_data.get("school_location", "")
+        student_grade = student_data.get("grade", "")
+        student_section = student_data.get("section", "")
+        with st.expander(f"📚 Homework & Tasks — {student_grade}, Section {student_section}", expanded=True):
+            st.subheader("Assigned Homework & Tasks")
+            student_tasks = get_class_records("assignments", student_school, student_location, student_grade, student_section)
+            if student_tasks:
+                for task in student_tasks:
+                    st.info(f"**{task.get('title', 'Task')}**\n\n{task.get('instructions', '')}\n\n**Due:** {task.get('due_date', 'Not specified')} · **Teacher:** {task.get('teacher', 'Teacher')}")
+            else:
+                st.caption("No homework or tasks have been assigned to your class yet.")
+            st.divider()
+            st.subheader("Learning Resources")
+            student_resources = get_class_records("class_resources", student_school, student_location, student_grade, student_section)
+            if student_resources:
+                for resource in student_resources:
+                    st.markdown(f"**{resource.get('title', 'Resource')}**")
+                    if resource.get("description"):
+                        st.write(resource["description"])
+                    if resource.get("url"):
+                        st.markdown(f"[Open resource]({resource['url']})")
+            else:
+                st.caption("No learning resources have been shared with your class yet.")
 
     st.subheader("What's on your mind today? 😊")
 
@@ -1460,7 +1667,7 @@ def render_solo_study_chat():
     # ---------------------------------------------------------------
     # DISPLAY EXISTING CHAT MESSAGES
     # ---------------------------------------------------------------
-    for msg in st.session_state["messages"]:
+    for msg_index, msg in enumerate(st.session_state["messages"]):
 
         avatar_img = (
             st.session_state.get("profile_pic", None)
@@ -1473,6 +1680,11 @@ def render_solo_study_chat():
             avatar=avatar_img
         ):
             st.markdown(msg["content"])
+            if msg["role"] == "user":
+                if st.button("✏️", key=f"edit_user_prompt_{msg_index}", help="Edit your message"):
+                    st.session_state["editing_user_prompt"] = msg_index
+                if st.session_state.get("editing_user_prompt") == msg_index:
+                    render_user_prompt_editor(msg_index)
             if msg["role"] == "assistant":
                 render_answer_actions(msg["content"], key=f"solo_history_{len(st.session_state['messages'])}_{hash(str(msg['content']))}")
 
@@ -1529,7 +1741,11 @@ def render_solo_study_chat():
         if uploaded_files:
 
             file_obj = uploaded_files[0]
-            file_bytes = file_obj.read()
+            try:
+                file_bytes = file_obj.read()
+            except (FileNotFoundError, OSError):
+                st.error("That attachment is no longer available. Please upload it again and resend your message.")
+                return
 
             file_bytes_str = base64.b64encode(
                 file_bytes
@@ -1669,10 +1885,8 @@ def render_solo_study_chat():
                     else:
                         error_message = str(error_data)
 
-                    ai_reply = (
-                        f"⚠️ OpenRouter error ({resp.status_code}): "
-                        f"{error_message}"
-                    )
+                    # Avoid echoing raw provider payloads that may contain sensitive details.
+                    ai_reply = f"⚠️ The AI service returned an error (HTTP {resp.status_code}). Please try again shortly. If it continues, ask the app administrator to check the deployment logs."
 
                 elif response_json.get("choices"):
 
@@ -1706,10 +1920,7 @@ def render_solo_study_chat():
                         )
 
                 else:
-                    ai_reply = (
-                        "⚠️ No AI response received. "
-                        f"Details: {response_json}"
-                    )
+                    ai_reply = "⚠️ The AI service did not return a usable response. Please try again shortly."
 
             except requests.Timeout:
                 ai_reply = (
@@ -1717,15 +1928,11 @@ def render_solo_study_chat():
                     "Please try again."
                 )
 
-            except requests.RequestException as e:
-                ai_reply = (
-                    f"⚠️ Network connection problem: {e}"
-                )
+            except requests.RequestException:
+                ai_reply = "⚠️ Network connection problem. Please check the internet connection and try again."
 
             except Exception as e:
-                ai_reply = (
-                    f"⚠️ Unexpected AI error: {e}"
-                )
+                ai_reply = f"⚠️ Something went wrong while preparing the AI response ({type(e).__name__}). Your chat is still available; please try again."
 
         # -----------------------------------------------------------
         # IMPORTANT FIX: SAVE AND DISPLAY AI RESPONSE IMMEDIATELY
@@ -2323,11 +2530,7 @@ def render_group_study_chats():
                             else:
                                 error_message = str(error_data)
 
-                            ai_help = (
-                                f"OpenRouter error "
-                                f"({resp.status_code}): "
-                                f"{error_message}"
-                            )
+                            ai_help = f"The AI service returned an error (HTTP {resp.status_code}). Please try again shortly."
 
                         elif g_resp_json.get("choices"):
 
@@ -2361,17 +2564,11 @@ def render_group_study_chats():
                             "Please try again."
                         )
 
-                    except requests.RequestException as e:
-
-                        ai_help = (
-                            f"Network connection problem: {e}"
-                        )
+                    except requests.RequestException:
+                        ai_help = "Network connection problem. Please check the internet connection and try again."
 
                     except Exception as e:
-
-                        ai_help = (
-                            f"Unexpected AI error: {e}"
-                        )
+                        ai_help = f"Something went wrong while preparing the AI response ({type(e).__name__}). Please try again."
 
                 # SAVE AI RESPONSE TO FIRESTORE
                 group_ref.collection("messages").add({
