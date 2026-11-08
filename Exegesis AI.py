@@ -1840,39 +1840,37 @@ def render_user_prompt_editor(message_index):
 
 
 def render_sticky_chat_disclaimer():
-    """Keep the accuracy disclaimer directly below the pinned chat composer."""
-    st.markdown(
-        """<style>
-        /* Lift Streamlit's pinned composer slightly to make room for the disclaimer. */
-        div[data-testid="stBottom"] {
-            bottom: 30px !important;
-            padding-bottom: 0 !important;
-        }
-        div[data-testid="stChatInput"] {
-            margin-bottom: 0 !important;
-        }
-        .exegesis-sticky-disclaimer {
-            position: fixed;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            z-index: 998;
-            min-height: 28px;
-            box-sizing: border-box;
-            padding: 5px 12px 6px;
-            text-align: center;
-            font-size: 0.78rem;
-            line-height: 1.2;
-            color: var(--text-color);
-            background: var(--background-color);
-            border-top: 1px solid rgba(128, 128, 128, 0.22);
-        }
-        </style>
-        <div class="exegesis-sticky-disclaimer">
-            Exegesis AI can make mistakes. Double check important information.
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    """Render the accuracy disclaimer as HTML below Streamlit's pinned composer."""
+    # Keep the HTML at column zero. Indenting raw HTML by four or more spaces
+    # makes Markdown treat it as a code block, which adds an unwanted Copy button.
+    disclaimer_html = """<style>
+/* Reserve space for the disclaimer below Streamlit's pinned chat composer. */
+div[data-testid="stBottom"] {
+    bottom: 30px !important;
+    padding-bottom: 0 !important;
+}
+div[data-testid="stChatInput"] {
+    margin-bottom: 0 !important;
+}
+.exegesis-sticky-disclaimer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 998;
+    min-height: 28px;
+    box-sizing: border-box;
+    padding: 5px 12px 6px;
+    text-align: center;
+    font-size: 0.78rem;
+    line-height: 1.2;
+    color: var(--text-color, inherit);
+    background: var(--background-color, transparent);
+    border-top: 1px solid rgba(128, 128, 128, 0.22);
+}
+</style>
+<div class="exegesis-sticky-disclaimer">Exegesis AI can make mistakes. Double check important information.</div>"""
+    st.markdown(disclaimer_html, unsafe_allow_html=True)
 
 
 def render_solo_study_chat():
