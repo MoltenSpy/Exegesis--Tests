@@ -2928,7 +2928,7 @@ def render_group_study_chats():
     # GROUP CHAT ROOM — SELECT A GROUP BEFORE OPENING
     # ================================================================
     st.markdown("---")
-    st.subheader("Open a Study Group")
+    st.subheader("Open a Group")
     st.caption("Choose one of your groups to open its chat room.")
 
     all_groups = list(
@@ -3045,13 +3045,13 @@ def render_group_study_chats():
                 except Exception:
                     profile_pic_cache[sender_username] = ""
 
-            with st.chat_message(chat_role):
+            # Use a plain container instead of st.chat_message so Streamlit
+            # does not add its own bot/user avatar beside the saved profile picture.
+            with st.container():
                 avatar_col, message_col = st.columns([0.10, 0.90])
                 with avatar_col:
                     if msg_avatar:
                         st.image(msg_avatar, width=42)
-                    else:
-                        st.write("🤖" if sender_username == "exegesis_ai" else "👤")
                 with message_col:
                     st.markdown(f"**{sender_display}**: {m.get('text', '')}")
                     if sender_username == "exegesis_ai":
