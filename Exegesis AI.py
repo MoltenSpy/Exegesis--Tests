@@ -1456,7 +1456,7 @@ with st.sidebar:
                     st.rerun()
 
             for i, chat in enumerate(st.session_state["chat_history"]):
-                cols = st.columns([5, 1, 1])
+                cols = st.columns([5, 1])
                 with cols[0]:
                     if st.button(
                         chat.get("title", "Untitled chat"),
@@ -1467,18 +1467,29 @@ with st.sidebar:
                         st.session_state["editing_user_prompt"] = None
                         st.session_state["renaming_chat_index"] = None
                         st.rerun()
+
+                # One compact vertical three-dot menu replaces the separate rename/delete icons.
                 with cols[1]:
-                    if st.button("✏️", key=f"rename_chat_{i}", help="Rename this chat"):
-                        st.session_state["renaming_chat_index"] = i
-                        st.session_state.pop(f"rename_chat_title_input_{i}", None)
-                        st.rerun()
-                with cols[2]:
-                    if st.button("❌", key=f"del_chat_{i}", help="Delete this chat"):
-                        st.session_state["chat_history"].pop(i)
-                        if st.session_state.get("renaming_chat_index") == i:
-                            st.session_state["renaming_chat_index"] = None
-                        save_user_session()
-                        st.rerun()
+                    with st.popover("⋮", help="Chat options", use_container_width=True):
+                        if st.button(
+                            "Rename",
+                            key=f"rename_chat_{i}",
+                            use_container_width=True
+                        ):
+                            st.session_state["renaming_chat_index"] = i
+                            st.session_state.pop(f"rename_chat_title_input_{i}", None)
+                            st.rerun()
+
+                        if st.button(
+                            "Delete",
+                            key=f"del_chat_{i}",
+                            use_container_width=True
+                        ):
+                            st.session_state["chat_history"].pop(i)
+                            if st.session_state.get("renaming_chat_index") == i:
+                                st.session_state["renaming_chat_index"] = None
+                            save_user_session()
+                            st.rerun()
 
                 if st.session_state.get("renaming_chat_index") == i:
                     with st.form(key=f"rename_chat_form_{i}"):
